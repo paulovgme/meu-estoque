@@ -1,55 +1,96 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
+from streamlit_gsheets import GSheetsConnection
 
-# Conectar ao banco de dados (será criado automaticamente)
-conn = sqlite3.connect('estoque.db', check_same_thread=False)
-c = conn.cursor()
+# Configuração da página
+st.set_page_config(page_title="Sistema Tiercal", page_icon="🔐", layout="wide")
 
-# Criar a tabela
-c.execute('''
-    CREATE TABLE IF NOT EXISTS produtos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT NOT NULL,
-        quantidade INTEGER NOT NULL,
-        preco REAL NOT NULL
-    )
-''')
-conn.commit()
+# --- CSS PARA MELHORAR O VISUAL ---
+st.markdown("""
+    <style>
+    .main { background-color: #f5f7f9; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #007bff; color: white; }
+    .stDataFrame { border-radius: 10px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- INTERFACE ---
-st.set_page_config(page_title="Meu Estoque", page_icon="📦")
-st.title("📦 Controle de Estoque Simples")
+# Conexão com Google Sheets (Configuraremos as chaves depois)
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Menu Lateral
-st.sidebar.header("Novo Produto")
-nome = st.sidebar.text_input("Nome")
-qtd = st.sidebar.number_input("Quantidade", min_value=0, step=1)
-preco = st.sidebar.number_input("Preço", min_value=0.0, step=0.1)
+# --- SISTEMA DE LOGIN ---
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+    st.session_state['user_name'] = ""
+    st.session_state['user_level'] = ""
 
-if st.sidebar.button("Salvar"):
-    if nome:
-        c.execute("INSERT INTO produtos (nome, quantidade, preco) VALUES (?, ?, ?)", (nome, qtd, preco))
-        conn.commit()
-        st.toast(f"Produto {nome} salvo!")
-        st.rerun()
-    else:
-        st.error("O nome é obrigatório.")
+def login():
+    st.title("🔐 Login - Sistema Tiercal")
+    with st.form("login_form"):
+        user = st.text_input("Usuário")
+        pw = st.text_input("Senha", type="password")
+        submit = st.form_submit_button("Entrar")
+        
+        if submit:
+            # Busca usuários na planilha
+            usuarios_df = conn.read(worksheet="usuarios")
+            valid_user = usuarios_df[(usuarios_df['usuario'] == user) & (usuarios_df['senha'] == str(pw))]
+            
+            if not valid_user.empty:
+                st.session_state['logged_in'] = True
+                st.session_state['user_name'] = user
+                st.session_state['user_level'] = valid_user.iloc[0]['nivel']
+                st.rerun()
+            else:
+                st.error("Usuário ou senha incorretos")
 
-# --- EXIBIÇÃO ---
-st.subheader("Produtos Cadastrados")
-df = pd.read_sql_query("SELECT * FROM produtos", conn)
-
-if not df.empty:
-    # Mostra a tabela
-    st.dataframe(df, use_container_width=True, hide_index=True)
-    
-    # Opção para deletar
-    st.divider()
-    id_deletar = st.number_input("Digite o ID para excluir", min_value=1, step=1)
-    if st.button("Excluir Produto"):
-        c.execute("DELETE FROM produtos WHERE id = ?", (id_deletar,))
-        conn.commit()
-        st.rerun()
+if not st.session_state['logged_in']:
+    login()
 else:
-    st.info("Nenhum produto no estoque ainda.")
+    # --- SISTEMA APÓS LOGIN ---
+    st.sidebar.title(f"Bem-vindo, {st.session_state['user_name']}")
+    menu = st.sidebar.radio("Navegação", ["📦 Estoque", "➕ Adicionar Produto", "👥 Gerenciar Usuários", "🚪 Sair"])
+
+    if menu == "🚪 Sair":
+        st.session_state['logged_in'] = False
+        st.rerun()
+
+    # --- ABA ESTOQUE ---
+    if menu == "📦 Estoque":
+        st.header("📦 Dashboard de Estoque")
+        dados = conn.read(worksheet="produtos")
+        
+        # Métricas visuais (Cartões)
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total de Itens", len(dados))
+        col2.metric("Estoque Baixo", len(dados[dados['quantidade'] < 5]))
+        col3.metric("Valor Total", f"R$ { (dados['quantidade'] * dados['preco']).sum():.2f}")
+
+        st.divider()
+        st.dataframe(dados, use_container_width=True, hide_index=True)
+
+    # --- ABA ADICIONAR PRODUTO ---
+    elif menu == "➕ Adicionar Produto":
+        st.header("➕ Cadastrar Novo Item")
+        with st.form("add_form"):
+            nome = st.text_input("Nome do Produto")
+            qtd = st.number_input("Quantidade", min_value=0)
+            preco = st.number_input("Preço Unitário", min_value=0.0)
+            if st.form_submit_button("Salvar no Google Sheets"):
+                # Lógica para salvar na planilha (Próximo passo)
+                st.success("Produto enviado para a planilha!")
+
+    # --- ABA GERENCIAR USUÁRIOS (SÓ PARA ADMIN) ---
+    elif menu == "👥 Gerenciar Usuários":
+        if st.session_state['user_level'] == 'admin':
+            st.header("👥 Gestão de Acessos")
+            usuarios_df = conn.read(worksheet="usuarios")
+            st.table(usuarios_df[['usuario', 'nivel']])
+            
+            with st.expander("Criar Novo Usuário"):
+                novo_u = st.text_input("Novo Usuário")
+                nova_s = st.text_input("Senha")
+                novo_n = st.selectbox("Nível", ["operador", "admin"])
+                if st.button("Cadastrar Usuário"):
+                    st.info("Funcionalidade de escrita sendo liberada...")
+        else:
+            st.error("Você não tem permissão de Administrador.")
