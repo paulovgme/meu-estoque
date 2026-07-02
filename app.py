@@ -1,82 +1,119 @@
 import streamlit as st
 import pandas as pd
+import requests
+import plotly.express as px
 
-# LINKS QUE VOCÊ GEROU (Já inseridos)
+# --- CONFIGURAÇÃO DOS LINKS (COLE OS SEUS AQUI) ---
 LINK_USUARIOS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR66hMMGy2uGkRwwHAAW_UL9tEq33eJe4gvY-RiI7BUuQMg2-Pmk7L8z6Jv17rQ5DvVEq0CtTPBPdnP/pub?gid=0&single=true&output=csv"
 LINK_PRODUTOS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR66hMMGy2uGkRwwHAAW_UL9tEq33eJe4gvY-RiI7BUuQMg2-Pmk7L8z6Jv17rQ5DvVEq0CtTPBPdnP/pub?gid=622782364&single=true&output=csv"
+LINK_HISTORICO = "COLE_AQUI_O_LINK_CSV_DA_ABA_HISTORICO"
+URL_SCRIPTS = "COLE_AQUI_O_LINK_DO_PASSO_1"
 
-# Configuração visual
-st.set_page_config(page_title="Tiercal Estoque", page_icon="📦", layout="wide")
+st.set_page_config(page_title="Ti Ercal - Gestão", page_icon="🧡", layout="wide")
 
-# CSS para deixar bonito
-st.markdown("""
+# --- ESTILO LARANJA E BRANCO ---
+st.markdown(f"""
     <style>
-    .stApp { background-color: #f0f2f6; }
-    .stButton>button { background-color: #007bff; color: white; border-radius: 8px; width: 100%; }
+    .stApp {{ background-color: white; }}
+    .stButton>button {{ background-color: #FF8C00; color: white; border-radius: 10px; }}
+    .sidebar .sidebar-content {{ background-color: #FFF5EE; }}
+    h1, h2, h3 {{ color: #FF8C00; }}
     </style>
     """, unsafe_allow_html=True)
 
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
+    st.session_state['user'] = ""
+    st.session_state['nivel'] = ""
 
-# Função para ler os dados e limpar os nomes das colunas
-def ler_planilha(url):
+def carregar(url):
     df = pd.read_csv(url)
-    df.columns = df.columns.str.strip().str.lower() # Remove espaços e deixa minúsculo
+    df.columns = df.columns.str.strip().str.lower()
     return df
 
-# --- TELA DE LOGIN ---
+# --- LOGIN ---
 if not st.session_state['logged_in']:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.write("# 🔐 Login Sistema Tiercal")
-        user_input = st.text_input("Usuário").strip().lower()
-        pass_input = st.text_input("Senha", type="password").strip()
-        
-        if st.button("Acessar Sistema"):
-            try:
-                df_u = ler_planilha(LINK_USUARIOS)
-                # Verifica se o usuário e senha batem
-                usuario_valido = df_u[
-                    (df_u['usuario'].astype(str).str.lower() == user_input) & 
-                    (df_u['senha'].astype(str) == pass_input)
-                ]
-                
-                if not usuario_valido.empty:
-                    st.session_state['logged_in'] = True
-                    st.rerun()
-                else:
-                    st.error("Usuário ou senha não encontrados na planilha.")
-            except Exception as e:
-                st.error(f"Erro ao ler banco de dados: {e}")
+    st.title("🧡 Ti Ercal - Acesso")
+    with st.form("login"):
+        u = st.text_input("Usuário").lower()
+        p = st.text_input("Senha", type="password")
+        if st.form_submit_button("Entrar"):
+            df_u = carregar(LINK_USUARIOS)
+            valido = df_u[(df_u['usuario'] == u) & (df_u['senha'].astype(str) == str(p))]
+            if not valido.empty:
+                st.session_state['logged_in'] = True
+                st.session_state['user'] = u
+                st.session_state['nivel'] = valido.iloc[0]['nivel']
+                st.rerun()
+            else:
+                st.error("login invalido")
 
-# --- SISTEMA APÓS LOGIN ---
+# --- SISTEMA ---
 else:
-    st.sidebar.title("📦 Menu Tiercal")
-    opcao = st.sidebar.radio("Navegação", ["Visualizar Estoque", "Sair"])
+    menu = st.sidebar.radio("Ti Ercal Menu", ["📊 Estatísticas", "📦 Estoque", "🔄 Movimentação", "➕ Novo Produto", "👥 Usuários", "🚪 Sair"])
 
-    if opcao == "Sair":
+    if menu == "Sair":
         st.session_state['logged_in'] = False
         st.rerun()
 
-    if opcao == "Visualizar Estoque":
-        st.title("📦 Painel de Controle de Estoque")
-        
-        try:
-            df_p = ler_planilha(LINK_PRODUTOS)
-            
-            # Cartões de Resumo
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total de Produtos", len(df_p))
-            c2.warning("Edite os valores na Planilha do Google")
-            c3.success("Sincronizado em tempo real")
+    # 📊 ESTATÍSTICAS
+    if menu == "📊 Estatísticas":
+        st.title("📊 Painel de Performance")
+        df_h = carregar(LINK_HISTORICO)
+        saidas = df_h[df_h['acao'] == 'SAIDA']
+        if not saidas.empty:
+            top_saidas = saidas.groupby('produto')['quantidade'].sum().reset_index()
+            fig = px.bar(top_saidas, x='produto', y='quantidade', title="Equipamentos com mais Saída", color_discrete_sequence=['#FF8C00'])
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Ainda não há dados de saídas para gerar estatísticas.")
 
-            st.divider()
-            # Mostra a tabela de produtos
-            st.dataframe(df_p, use_container_width=True, hide_index=True)
-            
-        except Exception as e:
-            st.error(f"Erro ao carregar lista de produtos: {e}")
+    # 📦 ESTOQUE
+    elif menu == "📦 Estoque":
+        st.title("📦 Estoque Atual")
+        df_p = carregar(LINK_PRODUTOS)
+        # Alerta de Estoque Baixo
+        baixo = df_p[df_p['quantidade'] <= df_p['alerta']]
+        if not baixo.empty:
+            st.warning(f"Atenção! {len(baixo)} itens estão com estoque crítico!")
+        st.dataframe(df_p.style.highlight_between(left=0, right=5, subset=['quantidade'], color='#FFDAB9'), use_container_width=True)
 
-    st.sidebar.divider()
-    st.sidebar.info("Para adicionar ou remover itens, use a sua Planilha do Google.")
+    # 🔄 MOVIMENTAÇÃO (Entrada/Saída)
+    elif menu == "🔄 Movimentação":
+        st.title("🔄 Entrada e Saída de Itens")
+        df_p = carregar(LINK_PRODUTOS)
+        prod_selecionado = st.selectbox("Selecione o Produto", df_p['nome'])
+        tipo_mov = st.radio("Tipo", ["ENTRADA", "SAIDA"])
+        qtd_mov = st.number_input("Quantidade", min_value=1)
+        if st.button("Confirmar Movimentação"):
+            payload = {"tipo": "MOVIMENTACAO", "nome": prod_selecionado, "acao": tipo_mov, "valor": qtd_mov, "operador": st.session_state['user']}
+            requests.post(URL_SCRIPTS, json=payload)
+            st.success("Movimentação registrada!")
+            st.rerun()
+
+    # ➕ NOVO PRODUTO
+    elif menu == "➕ Novo Produto":
+        st.title("➕ Cadastrar Equipamento")
+        nome = st.text_input("Nome")
+        cat = st.selectbox("Categoria", ["Hardware", "Redes", "Periféricos", "Outros"])
+        qtd = st.number_input("Qtd Inicial", min_value=0)
+        pre = st.number_input("Preço Unitário", min_value=0.0)
+        ale = st.number_input("Alerta Mínimo", min_value=1)
+        if st.button("Salvar Produto"):
+            payload = {"tipo": "PRODUTO", "id": 0, "nome": nome, "categoria": cat, "quantidade": qtd, "preco": pre, "alerta": ale, "operador": st.session_state['user']}
+            requests.post(URL_SCRIPTS, json=payload)
+            st.success("Cadastrado com sucesso!")
+
+    # 👥 USUÁRIOS
+    elif menu == "👥 Usuários":
+        if st.session_state['nivel'] == 'admin':
+            st.title("👥 Gerenciar Acessos")
+            u_nome = st.text_input("Nome do Usuário")
+            u_senha = st.text_input("Senha")
+            u_nivel = st.selectbox("Nível", ["operador", "admin"])
+            if st.button("Criar Usuário"):
+                payload = {"tipo": "USUARIO", "usuario": u_nome.lower(), "senha": u_senha, "nivel": u_nivel}
+                requests.post(URL_SCRIPTS, json=payload)
+                st.success("Usuário criado!")
+        else:
+            st.error("Acesso restrito ao Administrador.")
