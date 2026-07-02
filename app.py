@@ -1,96 +1,52 @@
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
 
-# Configuração da página
-st.set_page_config(page_title="Sistema Tiercal", page_icon="🔐", layout="wide")
+# CONFIGURAÇÃO DOS LINKS QUE VOCÊ COPIOU (COLE AQUI ENTRE AS ASPAS)
+LINK_USUARIOS = "COLE_AQUI_O_LINK_CSV_DA_ABA_USUARIOS"
+LINK_PRODUTOS = "COLE_AQUI_O_LINK_CSV_DA_ABA_PRODUTOS"
 
-# --- CSS PARA MELHORAR O VISUAL ---
-st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #007bff; color: white; }
-    .stDataFrame { border-radius: 10px; }
-    </style>
-    """, unsafe_allow_html=True)
+st.set_page_config(page_title="Sistema Tiercal", layout="wide")
 
-# Conexão com Google Sheets (Configuraremos as chaves depois)
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-# --- SISTEMA DE LOGIN ---
+# --- LOGIN ---
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
-    st.session_state['user_name'] = ""
-    st.session_state['user_level'] = ""
 
-def login():
-    st.title("🔐 Login - Sistema Tiercal")
-    with st.form("login_form"):
-        user = st.text_input("Usuário")
-        pw = st.text_input("Senha", type="password")
-        submit = st.form_submit_button("Entrar")
-        
-        if submit:
-            # Busca usuários na planilha
-            usuarios_df = conn.read(worksheet="usuarios")
-            valid_user = usuarios_df[(usuarios_df['usuario'] == user) & (usuarios_df['senha'] == str(pw))]
-            
-            if not valid_user.empty:
+if not st.session_state['logged_in']:
+    st.title("🔐 Login Ti Ercal")
+    user = st.text_input("Usuário")
+    pw = st.text_input("Senha", type="password")
+    if st.button("Entrar"):
+        try:
+            # Lê os usuários direto do link público
+            df_user = pd.read_csv(LINK_USUARIOS)
+            # Verifica se bate com a planilha
+            valido = df_user[(df_user['usuario'] == user) & (df_user['senha'].astype(str) == str(pw))]
+            if not valido.empty:
                 st.session_state['logged_in'] = True
-                st.session_state['user_name'] = user
-                st.session_state['user_level'] = valid_user.iloc[0]['nivel']
                 st.rerun()
             else:
                 st.error("Usuário ou senha incorretos")
-
-if not st.session_state['logged_in']:
-    login()
+        except:
+            st.error("Erro ao conectar com a planilha. Verifique se ela foi 'Publicada na Web' como CSV.")
 else:
     # --- SISTEMA APÓS LOGIN ---
-    st.sidebar.title(f"Bem-vindo, {st.session_state['user_name']}")
-    menu = st.sidebar.radio("Navegação", ["📦 Estoque", "➕ Adicionar Produto", "👥 Gerenciar Usuários", "🚪 Sair"])
+    st.sidebar.success("Conectado!")
+    menu = st.sidebar.selectbox("Menu", ["📦 Estoque", "🚪 Sair"])
 
     if menu == "🚪 Sair":
         st.session_state['logged_in'] = False
         st.rerun()
 
-    # --- ABA ESTOQUE ---
     if menu == "📦 Estoque":
-        st.header("📦 Dashboard de Estoque")
-        dados = conn.read(worksheet="produtos")
-        
-        # Métricas visuais (Cartões)
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total de Itens", len(dados))
-        col2.metric("Estoque Baixo", len(dados[dados['quantidade'] < 5]))
-        col3.metric("Valor Total", f"R$ { (dados['quantidade'] * dados['preco']).sum():.2f}")
-
-        st.divider()
-        st.dataframe(dados, use_container_width=True, hide_index=True)
-
-    # --- ABA ADICIONAR PRODUTO ---
-    elif menu == "➕ Adicionar Produto":
-        st.header("➕ Cadastrar Novo Item")
-        with st.form("add_form"):
-            nome = st.text_input("Nome do Produto")
-            qtd = st.number_input("Quantidade", min_value=0)
-            preco = st.number_input("Preço Unitário", min_value=0.0)
-            if st.form_submit_button("Salvar no Google Sheets"):
-                # Lógica para salvar na planilha (Próximo passo)
-                st.success("Produto enviado para a planilha!")
-
-    # --- ABA GERENCIAR USUÁRIOS (SÓ PARA ADMIN) ---
-    elif menu == "👥 Gerenciar Usuários":
-        if st.session_state['user_level'] == 'admin':
-            st.header("👥 Gestão de Acessos")
-            usuarios_df = conn.read(worksheet="usuarios")
-            st.table(usuarios_df[['usuario', 'nivel']])
+        st.header("📦 Controle de Estoque")
+        try:
+            df_prod = pd.read_csv(LINK_PRODUTOS)
+            st.dataframe(df_prod, use_container_width=True)
             
-            with st.expander("Criar Novo Usuário"):
-                novo_u = st.text_input("Novo Usuário")
-                nova_s = st.text_input("Senha")
-                novo_n = st.selectbox("Nível", ["operador", "admin"])
-                if st.button("Cadastrar Usuário"):
-                    st.info("Funcionalidade de escrita sendo liberada...")
-        else:
-            st.error("Você não tem permissão de Administrador.")
+            # Resumo visual
+            st.divider()
+            col1, col2 = st.columns(2)
+            col1.metric("Total de Itens", len(df_prod))
+            col2.info("Para editar, altere diretamente a Planilha do Google.")
+        except:
+            st.error("Erro ao carregar produtos.")
