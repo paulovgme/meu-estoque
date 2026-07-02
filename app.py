@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 
 # CONFIGURAÇÃO DOS LINKS QUE VOCÊ COPIOU (COLE AQUI ENTRE AS ASPAS)
-LINK_USUARIOS = "COLE_AQUI_O_LINK_CSV_DA_ABA_USUARIOS"
-LINK_PRODUTOS = "COLE_AQUI_O_LINK_CSV_DA_ABA_PRODUTOS"
+# EXEMPLO DE COMO OS LINKS DEVEM PARECER (Use os seus!)
+LINK_USUARIOS = "https://docs.google.com/spreadsheets/d/e/2PACX-1v.../pub?gid=0&single=true&output=csv"
+LINK_PRODUTOS = "https://docs.google.com/spreadsheets/d/e/2PACX-1v.../pub?gid=12345&single=true&output=csv"
 
 st.set_page_config(page_title="Sistema Tiercal", layout="wide")
 
