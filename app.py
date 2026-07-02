@@ -7,8 +7,8 @@ import plotly.express as px
 # Certifique-se de que todos os links terminam em 'output=csv'
 LINK_USUARIOS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR66hMMGy2uGkRwwHAAW_UL9tEq33eJe4gvY-RiI7BUuQMg2-Pmk7L8z6Jv17rQ5DvVEq0CtTPBPdnP/pub?gid=0&single=true&output=csv"
 LINK_PRODUTOS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR66hMMGy2uGkRwwHAAW_UL9tEq33eJe4gvY-RiI7BUuQMg2-Pmk7L8z6Jv17rQ5DvVEq0CtTPBPdnP/pub?gid=622782364&single=true&output=csv"
-LINK_HISTORICO = "COLE_AQUI_O_LINK_DA_ABA_HISTORICO_EM_CSV" 
-URL_SCRIPTS = "https://script.google.com/macros/s/AKfycbySCqqo0cAYYCy2nNvdKPG-OsrGvz_youwQQmxWt0GRNOMRxeUrwDaMhrNnXv67MQ5l/exec"
+LINK_HISTORICO = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR66hMMGy2uGkRwwHAAW_UL9tEq33eJe4gvY-RiI7BUuQMg2-Pmk7L8z6Jv17rQ5DvVEq0CtTPBPdnP/pub?gid=289837026&single=true&output=csv" 
+URL_SCRIPTS = "https://script.google.com/macros/s/AKfycbySCqqo0cAYYCy2nNvdKPG-OsrGvz_youwQQmxWt0GRNOmRxeUrwDaMhrNnXv67MQ5l/exec"
 
 # Configuração da Página
 st.set_page_config(page_title="Ti Ercal - Gestão", page_icon="🧡", layout="wide")
