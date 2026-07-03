@@ -9,7 +9,7 @@ LINK_PRODUTOS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR66hMMGy2uGkRw
 LINK_HISTORICO = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR66hMMGy2uGkRwwHAAW_UL9tEq33eJe4gvY-RiI7BUuQMg2-Pmk7L8z6Jv17rQ5DvVEq0CtTPBPdnP/pub?gid=289837026&single=true&output=csv"
 URL_SCRIPTS = "https://script.google.com/macros/s/AKfycbySCqqo0cAYYCy2nNvdKPG-OsrGvz_youwQQmxWt0GRNOmRxeUrwDaMhrNnXv67MQ5l/exec"
 
-st.set_page_config(page_title="Ti Ercal - Gestão", page_icon="🔥", layout="wide")
+st.set_page_config(page_title="Ti - Estoque", page_icon="🔥", layout="wide")
 
 # --- ESTILO VISUAL ---
 st.markdown("""
@@ -35,7 +35,7 @@ if 'logged_in' not in st.session_state:
 
 # --- LOGIN ---
 if not st.session_state['logged_in']:
-    st.title("🔥 Ti Ercal - Sistema de Gestão")
+    st.title("🔥 Ti - Sistema de Gestão")
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         with st.form("form_login"):
