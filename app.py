@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 from st_supabase_connection import SupabaseConnection
 
-# 1. Configuração da página (Primeira linha sempre)
-st.set_page_config(page_title="Estoque", page_icon="🔥")
+# 1. Configuração de página
+st.set_page_config(page_title="Sistema Ti", page_icon="🔥")
 
-# 2. Conexão com o Banco (Cache para evitar reconexões travadas)
+# 2. Conexão com Cache
 @st.cache_resource
 def iniciar_conexao():
     return st.connection(
@@ -17,59 +17,56 @@ def iniciar_conexao():
 
 conn = iniciar_conexao()
 
-# 3. Inicialização do estado de login
+# 3. Estado de Login
 if 'logado' not in st.session_state:
     st.session_state.logado = False
 
-# --- ÁREA DE LOGIN (Simples e sem Forms) ---
+# Criamos um "espaço vazio" que ocupará a tela toda
+container_principal = st.empty()
+
+# --- LÓGICA DE TROCA DE TELAS ---
+
 if not st.session_state.logado:
-    st.title("🔥 Acesso ao Sistema")
-    
-    # Usamos chaves (key) para o Streamlit não se perder
-    user_input = st.text_input("Usuário", key="login_user").strip().lower()
-    pass_input = st.text_input("Senha", type="password", key="login_pass").strip()
-    
-    if st.button("Entrar no Sistema", key="btn_entrar"):
-        if user_input and pass_input:
+    # Desenhamos o login DENTRO do container vazio
+    with container_principal.container():
+        st.title("🔥 Acesso ao Sistema")
+        
+        user = st.text_input("Usuário", key="u_login").strip().lower()
+        senha = st.text_input("Senha", type="password", key="p_login").strip()
+        
+        if st.button("Entrar", key="btn_entrar"):
             try:
-                # Busca direta no banco
-                res = conn.table("usuarios").select("*").eq("usuario", user_input).eq("senha", pass_input).execute()
+                res = conn.table("usuarios").select("*").eq("usuario", user).eq("senha", senha).execute()
                 
                 if res.data:
+                    # Antes de qualquer coisa, limpamos o container
+                    container_principal.empty()
+                    # Mudamos o estado e reiniciamos
                     st.session_state.logado = True
-                    st.session_state.usuario_nome = user_input
-                    st.rerun() # Reinicia para carregar o sistema
+                    st.session_state.usuario_nome = user
+                    st.rerun()
                 else:
-                    st.error("Usuário ou senha incorretos.")
+                    st.error("Dados incorretos.")
             except Exception as e:
-                st.error(f"Erro de conexão: {e}")
-        else:
-            st.warning("Preencha os campos de acesso.")
+                st.error(f"Erro: {e}")
 
-# --- ÁREA DO SISTEMA (Após o Login) ---
 else:
-    st.sidebar.title(f"Olá, {st.session_state.usuario_nome.capitalize()}")
-    
-    if st.sidebar.button("Sair", key="btn_logout"):
-        st.session_state.logado = False
-        st.rerun()
+    # Se estiver logado, o container principal fica com o conteúdo do sistema
+    with container_principal.container():
+        st.sidebar.title(f"Olá, {st.session_state.usuario_nome}")
+        if st.sidebar.button("Sair"):
+            st.session_state.logado = False
+            st.rerun()
 
-    st.title("📦 Controle de Estoque")
-
-    # Botão para recarregar manualmente se necessário
-    if st.button("🔄 Atualizar Lista"):
-        st.rerun()
-
-    try:
-        # Busca produtos
-        resultado = conn.table("produtos").select("*").execute()
-        df = pd.DataFrame(resultado.data)
+        st.title("📦 Estoque Atual")
         
-        if not df.empty:
-            st.write("### Itens Cadastrados")
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("O estoque está vazio.")
+        try:
+            resultado = conn.table("produtos").select("*").execute()
+            df = pd.DataFrame(resultado.data)
             
-    except Exception as e:
-        st.error(f"Não foi possível carregar os dados: {e}")
+            if not df.empty:
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("Estoque vazio.")
+        except Exception as e:
+            st.error(f"Erro ao carregar: {e}")
