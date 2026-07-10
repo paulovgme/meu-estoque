@@ -40,4 +40,10 @@ def carregar_dados(tabela):
     except:
         return pd.DataFrame()
 
+# --- 4. VERIFICAÇÃO DE LOGIN ---
 if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+
+if not st.session_state['logged_in']:
+    st.title("🔥 Ti - Sistema de Gestão")
+    col1, col2, col3 = st.columns([1, 2, 1])
