@@ -2,60 +2,72 @@ import streamlit as st
 import pandas as pd
 from st_supabase_connection import SupabaseConnection
 
-# 1. Configuração simples
+# 1. Configuração da página (Deve ser a primeira coisa sempre)
 st.set_page_config(page_title="Sistema de Estoque", page_icon="🔥")
 
-# 2. Conexão (direta nos segredos)
-try:
+# 2. Conexão com o Banco
+@st.cache_resource
+def conectar_banco():
     url = st.secrets["URL_BANCO"]
     key = st.secrets["CHAVE_BANCO"]
-    conn = st.connection("supabase", type=SupabaseConnection, url=url, key=key)
-except Exception as e:
-    st.error(f"Erro de conexão: {e}")
-    st.stop()
+    return st.connection("supabase", type=SupabaseConnection, url=url, key=key)
 
-# 3. Estado do login
+conn = conectar_banco()
+
+# 3. Inicialização do Estado (Garante que as variáveis existam)
 if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
+    st.session_state.logged_in = False
+if 'user_name' not in st.session_state:
+    st.session_state.user_name = ""
 
-# 4. Interface
-st.title("🔥 Ti - Sistema de Gestão")
+# --- FUNÇÃO DE LOGIN ---
+def realizar_login(u, p):
+    try:
+        res = conn.table("usuarios").select("*").eq("usuario", u.lower()).eq("senha", p).execute()
+        if res.data:
+            st.session_state.logged_in = True
+            st.session_state.user_name = u
+            st.rerun()
+        else:
+            st.error("Usuário ou senha incorretos.")
+    except Exception as e:
+        st.error(f"Erro de conexão com o banco: {e}")
 
-if not st.session_state['logged_in']:
-    st.info("Por favor, faça o login para continuar.")
+# --- INTERFACE ---
+
+# Se NÃO estiver logado, mostra APENAS a tela de login
+if not st.session_state.logged_in:
+    st.title("🔥 Acesso ao Sistema")
     
-    # Login simples sem colunas para evitar erro de carregamento
-    u = st.text_input("Usuário").strip().lower()
-    p = st.text_input("Senha", type="password").strip()
+    # Usamos chaves (key) únicas para o navegador não se perder
+    usuario_input = st.text_input("Usuário", key="input_user").strip()
+    senha_input = st.text_input("Senha", type="password", key="input_pass").strip()
     
-    if st.button("Acessar Sistema"):
-        try:
-            # Busca no banco
-            res = conn.table("usuarios").select("*").eq("usuario", u).eq("senha", p).execute()
-            if res.data:
-                st.session_state['logged_in'] = True
-                st.session_state['user'] = u
-                st.session_state['nivel'] = res.data[0]['nivel'].strip().lower()
-                st.rerun()
-            else:
-                st.error("Login inválido!")
-        except Exception as e:
-            st.error(f"Erro ao consultar banco: {e}")
+    if st.button("Entrar", key="btn_login"):
+        if usuario_input and senha_input:
+            realizar_login(usuario_input, senha_input)
+        else:
+            st.warning("Preencha todos os campos.")
 
+# Se ESTIVER logado, mostra o sistema
 else:
-    st.sidebar.write(f"Logado como: {st.session_state['user']}")
-    if st.sidebar.button("Sair"):
-        st.session_state['logged_in'] = False
+    st.sidebar.title(f"Olá, {st.session_state.user_name.capitalize()}")
+    if st.sidebar.button("Sair", key="btn_logout"):
+        st.session_state.logged_in = False
         st.rerun()
 
-    # Mostra os produtos logo de cara para testar
-    st.write("### Itens no Estoque")
+    st.title("📦 Estoque Atual")
+    
+    # Carrega os dados
     try:
         dados = conn.table("produtos").select("*").execute()
         df = pd.DataFrame(dados.data)
+        
         if not df.empty:
+            st.write("Dados carregados do Supabase:")
             st.dataframe(df, use_container_width=True)
         else:
-            st.warning("Nenhum produto encontrado.")
+            st.info("Nenhum produto cadastrado no banco.")
+            
     except Exception as e:
         st.error(f"Erro ao carregar produtos: {e}")
