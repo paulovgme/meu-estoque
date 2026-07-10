@@ -2,20 +2,21 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from st_supabase_connection import SupabaseConnection
+import time
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Ti - Estoque Profissional", page_icon="🔥", layout="wide")
 
-# --- 2. CONEXÃO COM O BANCO (USANDO SEUS SECRETS ATUAIS) ---
+# --- 2. CONEXÃO COM O BANCO ---
 try:
-    minha_url = st.secrets["URL_BANCO"]
-    minha_chave = st.secrets["CHAVE_BANCO"]
+    url_banco = st.secrets["URL_BANCO"]
+    key_banco = st.secrets["CHAVE_BANCO"]
     
     conn = st.connection(
         "supabase",
         type=SupabaseConnection,
-        url=minha_url,
-        key=minha_chave
+        url=url_banco,
+        key=key_banco
     )
 except Exception as e:
     st.error(f"❌ Erro na conexão: {e}")
@@ -31,10 +32,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Função para carregar dados de qualquer tabela
+# Função para carregar dados
 def carregar_dados(tabela):
-    res = conn.table(tabela).select("*").execute()
-    return pd.DataFrame(res.data)
+    try:
+        res = conn.table(tabela).select("*").execute()
+        return pd.DataFrame(res.data)
+    except:
+        return pd.DataFrame()
 
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
@@ -59,10 +63,10 @@ if not st.session_state['logged_in']:
 
 # --- 5. SISTEMA LOGADO ---
 else:
+    opcoes = ["📊 Estatísticas", "📦 Estoque Atual", "🔄 Movimentação", "➕ Novo Produto", "🚪 Sair"]
     if st.session_state['nivel'] == 'admin':
-        opcoes = ["📊 Estatísticas", "📦 Estoque Atual", "🔄 Movimentação", "➕ Novo Produto", "🛠️ Ajustar Produto", "👥 Usuários", "🚪 Sair"]
-    else:
-        opcoes = ["📊 Estatísticas", "📦 Estoque Atual", "🔄 Movimentação", "➕ Novo Produto", "🚪 Sair"]
+        opcoes.insert(4, "🛠️ Ajustar Produto")
+        opcoes.insert(5, "👥 Usuários")
     
     menu = st.sidebar.radio(f"Olá, {st.session_state['user'].capitalize()}", opcoes)
 
@@ -90,7 +94,7 @@ else:
             if not baixo.empty:
                 st.error(f"🚨 ESTOQUE CRÍTICO EM {len(baixo)} ITENS")
             st.dataframe(df_p, use_container_width=True, hide_index=True)
-            if st.button("🔄 Sincronizar Agora"):
+            if st.button("🔄 Atualizar"):
                 st.rerun()
 
     # --- ABA MOVIMENTAÇÃO ---
@@ -98,58 +102,57 @@ else:
         st.title("🔄 Registro de Entrada/Saída")
         df_p = carregar_dados("produtos")
         if not df_p.empty:
-            with st.form("mov"):
+            with st.form("mov", clear_on_submit=True):
                 prod = st.selectbox("Selecione o Equipamento", df_p['nome'].unique())
                 tipo = st.radio("Operação", ["ENTRADA", "SAIDA"])
                 qtd = st.number_input("Quantidade", min_value=1)
                 if st.form_submit_button("Confirmar Movimentação"):
-                    # Busca quantidade atual
                     item = df_p[df_p['nome'] == prod].iloc[0]
                     nova_qtd = (int(item['quantidade']) + qtd) if tipo == "ENTRADA" else (int(item['quantidade']) - qtd)
-                    
-                    # 1. Atualiza no Banco
                     conn.table("produtos").update({"quantidade": nova_qtd}).eq("nome", prod).execute()
-                    
-                    # 2. Registra no histórico
-                    conn.table("historico").insert({
-                        "operador": st.session_state['user'],
-                        "acao": tipo,
-                        "produto": prod,
-                        "quantidade": qtd
-                    }).execute()
-                    
-                    st.success(f"Estoque de {prod} atualizado!")
+                    conn.table("historico").insert({"operador": st.session_state['user'], "acao": tipo, "produto": prod, "quantidade": qtd}).execute()
+                    st.success("Registrado com sucesso!")
+                    time.sleep(1) # Espera 1 segundo para evitar erro de 'Node'
                     st.rerun()
 
     # --- ABA NOVO PRODUTO ---
     elif menu == "➕ Novo Produto":
-        st.title("➕ Cadastrar Novo Equipamento")
-        with st.form("cad"):
+        st.title("➕ Cadastrar Equipamento")
+        with st.form("cad", clear_on_submit=True):
             n = st.text_input("Nome")
             c = st.selectbox("Categoria", ["TI", "Infra", "Redes", "Outros"])
             q = st.number_input("Estoque Inicial", min_value=0)
             p = st.number_input("Preço", min_value=0.0)
-            a = st.number_input("Alerta Estoque Baixo", min_value=1)
-            if st.form_submit_button("Salvar no Banco"):
-                conn.table("produtos").insert({
-                    "nome": n, "categoria": c, "quantidade": q, "preco": p, "alerta": a
-                }).execute()
-                st.success(f"Produto {n} cadastrado!")
+            a = st.number_input("Alerta", min_value=1)
+            if st.form_submit_button("Salvar"):
+                conn.table("produtos").insert({"nome": n, "categoria": c, "quantidade": q, "preco": p, "alerta": a}).execute()
+                st.success("Cadastrado!")
+                time.sleep(1)
+                st.rerun()
 
-    # --- ABA AJUSTAR PRODUTO (ADMIN) ---
+    # --- ABA AJUSTAR PRODUTO ---
     elif menu == "🛠️ Ajustar Produto":
         st.title("🛠️ Editar Produto")
         df_p = carregar_dados("produtos")
         if not df_p.empty:
-            item_edit = st.selectbox("Selecione para editar", df_p['nome'].unique())
-            novo_nome = st.text_input("Novo nome (ou mantenha igual)")
+            item_edit = st.selectbox("Selecione", df_p['nome'].unique())
+            novo_nome = st.text_input("Novo nome")
             nova_cat = st.selectbox("Nova Categoria", ["TI", "Infra", "Redes", "Outros"])
             if st.button("Salvar Alterações"):
                 conn.table("produtos").update({"nome": novo_nome if novo_nome else item_edit, "categoria": nova_cat}).eq("nome", item_edit).execute()
-                st.success("Produto atualizado!")
+                st.success("Atualizado!")
+                time.sleep(1)
                 st.rerun()
 
-    # --- ABA USUÁRIOS (ADMIN) ---
+    # --- ABA USUÁRIOS ---
     elif menu == "👥 Usuários":
         st.title("👥 Gestão de Acessos")
-        wi
+        with st.form("u", clear_on_submit=True):
+            nu = st.text_input("Usuário").lower()
+            ns = st.text_input("Senha")
+            nl = st.selectbox("Nível", ["operador", "admin"])
+            if st.form_submit_button("Criar"):
+                conn.table("usuarios").insert({"usuario": nu, "senha": ns, "nivel": nl}).execute()
+                st.success("Criado!")
+                time.sleep(1)
+                st.rerun()
