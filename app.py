@@ -6,7 +6,7 @@ from datetime import datetime
 # --- 1. CONFIGURAÇÕES INICIAIS ---
 st.set_page_config(page_title="Sistema Ti - Estoque", page_icon="📦", layout="wide")
 
-# --- 2. BLINDAGEM AGRESSIVA CONTRA GOOGLE TRANSLATE ---
+# --- 2. BLINDAGEM CONTRA GOOGLE TRANSLATE ---
 st.markdown("""
     <style>
         .notranslate { translate: no !important; }
@@ -152,7 +152,6 @@ elif menu == "🔧 Correção e Exclusão (Admin)":
         if res.data:
             df_edit = pd.DataFrame(res.data)
             
-            # --- PARTE DE EDIÇÃO ---
             st.subheader("📝 Editar Dados")
             sel_prod = st.selectbox("Selecione para editar", df_edit['nome'].tolist(), key="edit_sel")
             dados_p = df_edit[df_edit['nome'] == sel_prod].iloc[0]
@@ -169,21 +168,14 @@ elif menu == "🔧 Correção e Exclusão (Admin)":
                     st.rerun()
 
             st.divider()
-
-            # --- PARTE DE EXCLUSÃO ---
             st.subheader("🗑️ Excluir Produto")
-            st.warning("Atenção: A exclusão é permanente e não pode ser desfeita.")
             sel_del = st.selectbox("Selecione o produto para EXCLUIR", df_edit['nome'].tolist(), key="del_sel")
             item_del = df_edit[df_edit['nome'] == sel_del].iloc[0]
-            
-            confirmar_del = st.checkbox(f"Eu confirmo que desejo excluir o produto: {sel_del}")
+            confirmar_del = st.checkbox(f"Confirmar exclusão de: {sel_del}")
             if st.button("❌ EXCLUIR PERMANENTEMENTE"):
                 if confirmar_del:
-                    supabase.table("produtos").delete().eq("id", item_sel_id := item_del['id']).execute()
-                    st.success(f"Produto {sel_del} removido do sistema.")
+                    supabase.table("produtos").delete().eq("id", item_del['id']).execute()
                     st.rerun()
-                else:
-                    st.error("Por favor, marque a caixa de confirmação para excluir.")
 
 # --- 5. HISTÓRICO ---
 elif menu == "📜 Histórico Geral":
@@ -198,9 +190,9 @@ elif menu == "👥 Gerenciar Usuários":
     if st.session_state.nivel != "admin":
         st.error("🚫 Acesso restrito.")
     else:
-        # Adicionar Usuário
+        # PARTE 1: ADICIONAR
         with st.expander("➕ Adicionar Novo Usuário"):
-            nu = st.text_input("Nome de Usuário").lower()
+            nu = st.text_input("Novo Usuário").lower()
             ns = st.text_input("Senha")
             nv = st.selectbox("Nível", ["comum", "admin"])
             if st.button("Criar Usuário"):
@@ -208,29 +200,44 @@ elif menu == "👥 Gerenciar Usuários":
                 st.success("Criado!")
         
         st.divider()
-        
-        # Listar e Excluir Usuários
-        st.subheader("👥 Usuários Atuais e Remoção")
-        res_u = supabase.table("usuarios").select("id, usuario, nivel").execute()
+
+        # PARTE 2: EDITAR USUÁRIO (NOME E SENHA)
+        st.subheader("📝 Editar Usuário (Nome/Senha)")
+        res_u = supabase.table("usuarios").select("*").execute()
         if res_u.data:
             df_u = pd.DataFrame(res_u.data)
-            st.table(df_u)
+            u_para_editar = st.selectbox("Selecione o usuário para alterar", df_u['usuario'].tolist(), key="sel_u_edit")
+            dados_u_edit = df_u[df_u['usuario'] == u_para_editar].iloc[0]
 
-            # Lógica de exclusão de usuário
-            user_del_lista = df_u[df_u['usuario'] != st.session_state.user]['usuario'].tolist()
-            if user_del_lista:
-                u_para_remover = st.selectbox("Selecione um usuário para remover", user_del_lista)
-                id_u_del = df_u[df_u['usuario'] == u_para_remover].iloc[0]['id']
+            with st.form("form_edit_user"):
+                novo_u_nome = st.text_input("Novo Nome de Usuário", value=dados_u_edit['usuario'])
+                nova_u_senha = st.text_input("Nova Senha", value=dados_u_edit['senha'])
+                novo_u_nivel = st.selectbox("Nível", ["comum", "admin"], index=0 if dados_u_edit['nivel'] == "comum" else 1)
                 
-                confirma_u = st.checkbox(f"Confirmar remoção do acesso de: {u_para_remover}")
-                if st.button("🗑️ Remover Acesso"):
-                    if confirma_u:
-                        supabase.table("usuarios").delete().eq("id", id_u_del).execute()
-                        st.success(f"Usuário {u_para_remover} excluído.")
+                if st.form_submit_button("Atualizar Usuário"):
+                    try:
+                        supabase.table("usuarios").update({
+                            "usuario": novo_u_nome.lower().strip(),
+                            "senha": nova_u_senha.strip(),
+                            "nivel": novo_u_nivel
+                        }).eq("id", dados_u_edit['id']).execute()
+                        st.success(f"✅ Dados de {u_para_editar} atualizados!")
                         st.rerun()
-                    else:
-                        st.error("Marque a confirmação para remover.")
-            else:
-                st.info("Não há outros usuários para remover além de você.")
+                    except Exception as e:
+                        st.error(f"Erro ao atualizar: {e}")
+
+        st.divider()
+        
+        # PARTE 3: LISTAR E EXCLUIR
+        st.subheader("🗑️ Remover Usuário")
+        user_del_lista = df_u[df_u['usuario'] != st.session_state.user]['usuario'].tolist()
+        if user_del_lista:
+            u_para_remover = st.selectbox("Selecione para remover", user_del_lista)
+            id_u_del = df_u[df_u['usuario'] == u_para_remover].iloc[0]['id']
+            confirma_u = st.checkbox(f"Confirmar remoção de: {u_para_remover}")
+            if st.button("🗑️ Excluir Usuário"):
+                if confirma_u:
+                    supabase.table("usuarios").delete().eq("id", id_u_del).execute()
+                    st.rerun()
 
 st.markdown('</div>', unsafe_allow_html=True)
