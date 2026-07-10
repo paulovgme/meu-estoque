@@ -5,13 +5,11 @@ from st_supabase_connection import SupabaseConnection
 # 1. Configuração da página
 st.set_page_config(page_title="Ti - Estoque", page_icon="🔥")
 
-# 2. Conexão MANUAL (Forçando o uso das chaves)
+# 2. Conexão (Já sabemos que as chaves estão funcionando!)
 try:
-    # Pegamos o que você colou nos Secrets
     minha_url = st.secrets["URL_BANCO"]
     minha_chave = st.secrets["CHAVE_BANCO"]
     
-    # Criamos a conexão entregando os dados na mão do sistema
     conn = st.connection(
         "supabase",
         type=SupabaseConnection,
@@ -19,12 +17,12 @@ try:
         key=minha_chave
     )
 except Exception as e:
-    st.error(f"❌ Erro crítico de conexão: {e}")
+    st.error(f"❌ Erro na conexão: {e}")
     st.stop()
 
 st.title("🔥 Sistema de Estoque")
 
-# 3. Teste de Login
+# 3. Controle de Login
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
@@ -33,20 +31,30 @@ if not st.session_state['logged_in']:
         u = st.text_input("Usuário").strip().lower()
         p = st.text_input("Senha", type="password").strip()
         if st.form_submit_button("Entrar"):
-            # Busca no banco usando a conexão que acabamos de testar
-            res = conn.query("*", table="usuarios").eq("usuario", u).eq("senha", p).execute()
+            # COMANDO CORRIGIDO: Usando .table(...).select("*")
+            res = conn.table("usuarios").select("*").eq("usuario", u).eq("senha", p).execute()
+            
             if res.data:
                 st.session_state['logged_in'] = True
+                st.session_state['user'] = u
+                st.session_state['nivel'] = res.data[0]['nivel']
                 st.rerun()
             else:
                 st.error("Login inválido!")
 else:
-    st.success("Conectado com sucesso ao Banco de Dados!")
+    st.success(f"Conectado! Olá, {st.session_state['user']}")
+    
     if st.button("Sair"):
         st.session_state['logged_in'] = False
         st.rerun()
         
-    # Mostra os produtos para confirmar
-    st.write("### Lista de Produtos no Banco:")
-    dados = conn.query("*", table="produtos").execute()
-    st.dataframe(pd.DataFrame(dados.data))
+    # 4. Mostrar Produtos (COMANDO CORRIGIDO)
+    st.write("### Lista de Produtos:")
+    try:
+        dados = conn.table("produtos").select("*").execute()
+        if dados.data:
+            st.dataframe(pd.DataFrame(dados.data), use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum produto cadastrado ainda.")
+    except Exception as e:
+        st.error(f"Erro ao ler produtos: {e}")
