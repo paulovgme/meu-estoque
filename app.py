@@ -2,64 +2,45 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 
-# Configuração de página
+# Configuração básica
 st.set_page_config(page_title="Sistema Ti", page_icon="🔥")
 
-# 1. Conexão direta com Supabase (mais estável)
+# Conexão
 @st.cache_resource
-def get_supabase() -> Client:
-    url = st.secrets["URL_BANCO"]
-    key = st.secrets["CHAVE_BANCO"]
-    return create_client(url, key)
+def get_supabase():
+    return create_client(st.secrets["URL_BANCO"], st.secrets["CHAVE_BANCO"])
 
 supabase = get_supabase()
 
-# 2. Estado de Login
 if 'logado' not in st.session_state:
     st.session_state.logado = False
 
-# --- LÓGICA DE TELAS ---
-
 if not st.session_state.logado:
-    st.title("🔥 Acesso ao Sistema")
-    
-    with st.form("login_form"):
-        user = st.text_input("Usuário").strip().lower()
-        senha = st.text_input("Senha", type="password").strip()
+    st.title("🔥 Login")
+    with st.form("login"):
+        u = st.text_input("Usuário")
+        p = st.text_input("Senha", type="password")
         if st.form_submit_button("Entrar"):
-            try:
-                # Busca usuário
-                res = supabase.table("usuarios").select("*").eq("usuario", user).eq("senha", senha).execute()
-                
-                if res.data:
-                    st.session_state.logado = True
-                    st.session_state.usuario_nome = user
-                    st.rerun()
-                else:
-                    st.error("Usuário ou senha inválidos.")
-            except Exception as e:
-                st.error(f"Erro de conexão: {e}")
-
+            res = supabase.table("usuarios").select("*").eq("usuario", u).eq("senha", p).execute()
+            if res.data:
+                st.session_state.logado = True
+                st.session_state.user = u
+                st.rerun()
+            else:
+                st.error("Erro!")
 else:
-    st.sidebar.title(f"Olá, {st.session_state.usuario_nome}")
-    if st.sidebar.button("Sair"):
+    st.title(f"📦 Estoque - Olá {st.session_state.user}")
+    if st.button("Sair"):
         st.session_state.logado = False
         st.rerun()
-
-    st.title("📦 Estoque Atual")
-    
-    try:
-        # Busca dados
-        resultado = supabase.table("produtos").select("*").execute()
         
-        if resultado.data:
-            df = pd.DataFrame(resultado.data)
-            
-            # Ajustado conforme o seu Log sugeriu (width='stretch' em vez de use_container_width)
-            st.dataframe(df, width=None, hide_index=True)
-            
+    try:
+        dados = supabase.table("produtos").select("*").execute()
+        if dados.data:
+            df = pd.DataFrame(dados.data)
+            # Versão mais segura da tabela para evitar crashes visuais
+            st.table(df.head(20)) 
         else:
-            st.info("Nenhum produto encontrado no banco de dados.")
-            
+            st.write("Vazio")
     except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
+        st.error(f"Erro: {e}")
