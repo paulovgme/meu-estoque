@@ -3,13 +3,29 @@ import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
 
-# 1. CONFIGURAÇÕES INICIAIS
+# --- 1. BLINDAGEM CONTRA GOOGLE TRANSLATE (ADICIONE ISSO NO TOPO) ---
 st.set_page_config(page_title="Sistema Ti - Estoque", page_icon="📦", layout="wide")
 
-# Força o HTML a não ser traduzido (evita o erro removeChild)
-st.markdown('<html lang="pt-br"></html>', unsafe_allow_html=True)
+# Injeção de Meta Tags e CSS para bloquear tradução automática
+st.markdown("""
+    <style>
+        /* Bloqueia a tradução por CSS */
+        .notranslate {
+            translate: no !important;
+        }
+    </style>
+    <meta name="google" content="notranslate">
+    <script>
+        // Adiciona o atributo translate="no" ao corpo da página via JavaScript
+        document.documentElement.setAttribute('translate', 'no');
+        document.body.setAttribute('translate', 'no');
+    </script>
+""", unsafe_allow_html=True)
 
-# 2. CONEXÃO COM SUPABASE
+# Encapsula todo o conteúdo em uma div "notranslate"
+st.markdown('<div class="notranslate">', unsafe_allow_html=True)
+
+# --- 2. CONEXÃO COM SUPABASE ---
 @st.cache_resource
 def get_supabase() -> Client:
     url = st.secrets["URL_BANCO"]
@@ -18,7 +34,7 @@ def get_supabase() -> Client:
 
 supabase = get_supabase()
 
-# 3. GERENCIAMENTO DE ESTADO
+# --- 3. GERENCIAMENTO DE ESTADO ---
 if 'logado' not in st.session_state:
     st.session_state.logado = False
     st.session_state.nivel = None
@@ -32,7 +48,6 @@ if not st.session_state.logado:
         p = st.text_input("Senha", type="password").strip()
         if st.form_submit_button("Entrar", use_container_width=True):
             try:
-                # Tabela: usuarios
                 res = supabase.table("usuarios").select("*").eq("usuario", u).eq("senha", p).execute()
                 if res.data:
                     st.session_state.logado = True
@@ -64,12 +79,10 @@ if st.sidebar.button("Sair"):
 if menu == "📊 Consultar Estoque":
     st.title("📊 Consultar Estoque")
     try:
-        # Tabela: produtos
         dados = supabase.table("produtos").select("*").execute()
         df = pd.DataFrame(dados.data)
         
         if not df.empty:
-            # Alertas baseados na coluna 'alerta'
             alertas = df[df['quantidade'] <= df['alerta']]
             if not alertas.empty:
                 for _, item in alertas.iterrows():
@@ -80,7 +93,7 @@ if menu == "📊 Consultar Estoque":
         else:
             st.info("O estoque está vazio.")
     except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
+        st.error(f"Erro: {e}")
 
 # --- 2. ENTRADA / SAÍDA ---
 elif menu == "🔄 Entrada / Saída":
@@ -104,10 +117,8 @@ elif menu == "🔄 Entrada / Saída":
                 if nova_qtd < 0:
                     st.error("Erro: Saldo insuficiente!")
                 else:
-                    # Atualiza estoque na tabela 'produtos'
                     supabase.table("produtos").update({"quantidade": int(nova_qtd)}).eq("id", item_sel['id']).execute()
                     
-                    # Salva no 'historico' (conforme as colunas da sua foto)
                     supabase.table("historico").insert({
                         "operador": st.session_state.user,
                         "acao": operacao,
@@ -133,13 +144,8 @@ elif menu == "🆕 Cadastrar Produto":
         if st.form_submit_button("Cadastrar"):
             if n:
                 try:
-                    # Tabela: produtos (substituindo 'name')
                     supabase.table("produtos").insert({
-                        "nome": n, 
-                        "categoria": c, 
-                        "quantidade": int(q), 
-                        "preco": float(p), 
-                        "alerta": int(a)
+                        "nome": n, "categoria": c, "quantidade": int(q), "preco": float(p), "alerta": int(a)
                     }).execute()
                     st.success("Cadastrado com sucesso!")
                 except Exception as e:
@@ -151,11 +157,11 @@ elif menu == "🆕 Cadastrar Produto":
 elif menu == "📜 Histórico":
     st.title("📜 Histórico Geral")
     try:
-        res = supabase.table("historico").select("*").order("data", desc=True).execute()
+        res = supabase.table("historico").select("*").order("id", desc=True).execute()
         if res.data:
             st.dataframe(pd.DataFrame(res.data), use_container_width=True, hide_index=True)
     except Exception as e:
-        st.error(f"Erro ao carregar histórico: {e}")
+        st.error(f"Erro: {e}")
 
 # --- 6. GERENCIAR USUÁRIOS (ADMIN) ---
 elif menu == "👥 Gerenciar Usuários":
@@ -170,3 +176,6 @@ elif menu == "👥 Gerenciar Usuários":
             if st.button("Salvar"):
                 supabase.table("usuarios").insert({"usuario": nu, "senha": ns, "nivel": nv}).execute()
                 st.success("Usuário criado!")
+
+# Fecha a div de blindagem
+st.markdown('</div>', unsafe_allow_html=True)
