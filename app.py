@@ -2,105 +2,162 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 
-# 1. Configurações Iniciais
-st.set_page_config(page_title="Sistema de Estoque", page_icon="📦", layout="wide")
+# --- CONFIGURAÇÃO E CONEXÃO ---
+st.set_page_config(page_title="Sistema Ti - Estoque", page_icon="📦", layout="wide")
 
-# 2. Conexão com Supabase
 @st.cache_resource
 def get_supabase():
     return create_client(st.secrets["URL_BANCO"], st.secrets["CHAVE_BANCO"])
 
 supabase = get_supabase()
 
-# 3. Gerenciamento de Estado
+# --- ESTADO DA SESSÃO ---
 if 'logado' not in st.session_state:
     st.session_state.logado = False
+    st.session_state.nivel = None
+    st.session_state.usuario_nome = None
 
 # --- TELA DE LOGIN ---
 if not st.session_state.logado:
-    cols = st.columns([1, 2, 1]) # Centraliza o formulário
-    with cols[1]:
-        st.title("🔐 Acesso ao Sistema")
-        with st.form("login"):
-            u = st.text_input("Usuário").strip().lower()
-            p = st.text_input("Senha", type="password").strip()
-            if st.form_submit_button("Entrar", use_container_width=True):
-                res = supabase.table("usuarios").select("*").eq("usuario", u).eq("senha", p).execute()
-                if res.data:
-                    st.session_state.logado = True
-                    st.session_state.user = u
-                    st.rerun()
-                else:
-                    st.error("Usuário ou senha incorretos.")
-
-# --- TELA PRINCIPAL (ESTOQUE) ---
-else:
-    # Sidebar lateral
-    st.sidebar.title(f"👋 Olá, {st.session_state.user.capitalize()}")
-    if st.sidebar.button("Sair / Logoff"):
-        st.session_state.logado = False
-        st.rerun()
-
-    st.title("📦 Gerenciamento de Estoque")
-
-    # Criamos abas para organizar o app
-    tab1, tab2 = st.tabs(["📋 Visualizar Estoque", "➕ Cadastrar Produto"])
-
-    # --- ABA 1: VISUALIZAR ---
-    with tab1:
-        st.subheader("Produtos em Estoque")
-        
-        # Campo de busca
-        busca = st.text_input("🔍 Buscar produto pelo nome...")
-
-        try:
-            # Busca dados do Supabase
-            query = supabase.table("produtos").select("*")
-            if busca:
-                query = query.ilike("nome", f"%{busca}%")
-            
-            resultado = query.execute()
-            
-            if resultado.data:
-                df = pd.DataFrame(resultado.data)
-                
-                # Reorganiza as colunas se necessário (ajuste conforme seu banco)
-                # df = df[['id', 'nome', 'quantidade', 'preco']] 
-                
-                # Exibe a tabela de forma bonita
-                st.dataframe(df, use_container_width=True, hide_index=True)
-                
-                # Botão para deletar (exemplo simples)
-                with st.expander("🗑️ Excluir um produto"):
-                    id_deletar = st.number_input("Digite o ID do produto para excluir", step=1)
-                    if st.button("Confirmar Exclusão"):
-                        supabase.table("produtos").delete().eq("id", id_deletar).execute()
-                        st.success("Produto excluído!")
-                        st.rerun()
+    st.title("🔐 Acesso ao Sistema")
+    with st.form("login"):
+        u = st.text_input("Usuário").strip().lower()
+        p = st.text_input("Senha", type="password").strip()
+        if st.form_submit_button("Entrar", use_container_width=True):
+            res = supabase.table("usuarios").select("*").eq("usuario", u).eq("senha", p).execute()
+            if res.data:
+                st.session_state.logado = True
+                st.session_state.usuario_nome = u
+                st.session_state.nivel = res.data[0]['nivel'] # 'admin' ou 'comum'
+                st.rerun()
             else:
-                st.info("Nenhum produto encontrado.")
-        except Exception as e:
-            st.error(f"Erro ao carregar dados: {e}")
+                st.error("Dados incorretos.")
+    st.stop()
 
-    # --- ABA 2: CADASTRAR ---
-    with tab2:
-        st.subheader("Novo Cadastro")
-        with st.form("cadastro_produto", clear_on_submit=True):
-            nome_prod = st.text_input("Nome do Produto")
-            qtd_prod = st.number_input("Quantidade", min_value=0, step=1)
-            preco_prod = st.number_input("Preço (R$)", min_value=0.0, format="%.2f")
+# --- MENU LATERAL ---
+st.sidebar.title(f"Olá, {st.session_state.usuario_nome.capitalize()}")
+st.sidebar.info(f"Nível: {st.session_state.nivel.upper()}")
+
+menu = st.sidebar.radio("Navegação", [
+    "📊 Consultar Estoque", 
+    "📥 Entrada / 📤 Saída", 
+    "🆕 Cadastrar Produto",
+    "🔧 Correção de Produto",
+    "👥 Gerenciar Usuários"
+])
+
+if st.sidebar.button("Sair"):
+    st.session_state.logado = False
+    st.rerun()
+
+# --- 1. CONSULTAR ESTOQUE ---
+if menu == "📊 Consultar Estoque":
+    st.title("📊 Consultar Estoque")
+    
+    # Alertas de Estoque Mínimo
+    try:
+        dados = supabase.table("produtos").select("*").execute()
+        df = pd.DataFrame(dados.data)
+        
+        if not df.empty:
+            # Lógica de Alerta
+            alertas = df[df['quantidade'] <= df['estoque_minimo']]
+            if not alertas.empty:
+                for _, item in alertas.iterrows():
+                    st.warning(f"🚨 **ALERTA:** O produto **{item['nome']}** está com estoque baixo ({item['quantidade']} un).")
+
+            st.divider()
+            busca = st.text_input("Filtrar por nome ou código")
+            if busca:
+                df = df[df['nome'].str.contains(busca, case=False) | df['codigo'].astype(str).str.contains(busca)]
             
-            if st.form_submit_button("Salvar no Banco"):
-                if nome_prod:
-                    novo_item = {
-                        "nome": nome_prod,
-                        "quantidade": qtd_prod,
-                        "preco": preco_prod
-                    }
-                    try:
-                        supabase.table("produtos").insert(novo_item).execute()
-                        st.success(f"Sucesso! {nome_prod} adicionado.")
-                    except Exception as e:
-                        st.error(f"Erro ao salvar: {e}")
-                else:
-                    st.warning("O nome do produto é obrigatório.")
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum produto cadastrado.")
+    except Exception as e:
+        st.error(f"Erro ao carregar: {e}")
+
+# --- 2. ENTRADA / SAÍDA ---
+elif menu == "📥 Entrada / 📤 Saída":
+    st.title("🔄 Movimentação de Estoque")
+    
+    res = supabase.table("produtos").select("id, nome, quantidade").execute()
+    produtos_lista = {f"{p['nome']} (Qtd: {p['quantidade']})": p for p in res.data}
+    
+    escolha = st.selectbox("Selecione o produto", list(produtos_lista.keys()))
+    produto_sel = produtos_lista[escolha]
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        qtd_mov = st.number_input("Quantidade", min_value=1, step=1)
+    with col2:
+        tipo = st.radio("Operação", ["Entrada (Compra)", "Saída (Uso)"])
+
+    if st.button("Confirmar Movimentação"):
+        nova_qtd = produto_sel['quantidade'] + qtd_mov if tipo == "Entrada (Compra)" else produto_sel['quantidade'] - qtd_mov
+        
+        if nova_qtd < 0:
+            st.error("Erro: Estoque insuficiente para essa saída!")
+        else:
+            supabase.table("produtos").update({"quantidade": nova_qtd}).eq("id", produto_sel['id']).execute()
+            st.success("Estoque atualizado com sucesso!")
+            st.rerun()
+
+# --- 3. CADASTRAR PRODUTO ---
+elif menu == "🆕 Cadastrar Produto":
+    st.title("🆕 Cadastrar Novo Produto")
+    with st.form("form_cadastro"):
+        cod = st.text_input("Código do Produto")
+        nome = st.text_input("Nome")
+        qtd_ini = st.number_input("Quantidade Inicial", min_value=0)
+        est_min = st.number_input("Estoque Mínimo", min_value=1)
+        
+        if st.form_submit_button("Cadastrar"):
+            if cod and nome:
+                supabase.table("produtos").insert({
+                    "codigo": cod, "nome": nome, "quantidade": qtd_ini, "estoque_minimo": est_min
+                }).execute()
+                st.success("Produto cadastrado!")
+            else:
+                st.error("Preencha os campos obrigatórios.")
+
+# --- 4. CORREÇÃO DE PRODUTO (RESTRITO ADMIN) ---
+elif menu == "🔧 Correção de Produto":
+    st.title("🔧 Correção de Dados")
+    if st.session_state.nivel != "admin":
+        st.error("Apenas administradores podem corrigir nomes ou códigos.")
+    else:
+        res = supabase.table("produtos").select("*").execute()
+        df_corr = pd.DataFrame(res.data)
+        escolha = st.selectbox("Produto para editar", df_corr['nome'].tolist())
+        prod_dados = df_corr[df_corr['nome'] == escolha].iloc[0]
+
+        with st.form("form_edit"):
+            novo_cod = st.text_input("Novo Código", value=str(prod_dados['codigo']))
+            novo_nome = st.text_input("Novo Nome", value=prod_dados['nome'])
+            novo_min = st.number_input("Novo Estoque Mínimo", value=int(prod_dados['estoque_minimo']))
+            
+            if st.form_submit_button("Salvar Alterações"):
+                supabase.table("produtos").update({
+                    "codigo": novo_cod, "nome": novo_nome, "estoque_minimo": novo_min
+                }).eq("id", prod_dados['id']).execute()
+                st.success("Dados corrigidos!")
+                st.rerun()
+
+# --- 5. GERENCIAR USUÁRIOS (RESTRITO ADMIN) ---
+elif menu == "👥 Gerenciar Usuários":
+    st.title("👥 Gestão de Usuários")
+    if st.session_state.nivel != "admin":
+        st.error("Acesso restrito ao Administrador.")
+    else:
+        with st.expander("➕ Adicionar Novo Usuário"):
+            nu = st.text_input("Novo Usuário").strip().lower()
+            ns = st.text_input("Senha", type="password")
+            nv = st.selectbox("Nível", ["comum", "admin"])
+            if st.button("Criar Usuário"):
+                supabase.table("usuarios").insert({"usuario": nu, "senha": ns, "nivel": nv}).execute()
+                st.success("Usuário criado!")
+
+        st.subheader("Usuários Atuais")
+        users = supabase.table("usuarios").select("id, usuario, nivel").execute()
+        st.table(pd.DataFrame(users.data))
