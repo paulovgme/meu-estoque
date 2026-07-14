@@ -18,7 +18,7 @@ supabase = get_supabase()
 # --- 3. FUNÇÕES AUXILIARES ---
 def buscar_dados(tabela):
     try:
-        res = supabase.table(tabela).select("*").limit(200).execute()
+        res = supabase.table(tabela).select("*").limit(500).execute()
         return pd.DataFrame(res.data)
     except Exception as e:
         st.error(f"Erro ao acessar {tabela}: {e}")
@@ -74,22 +74,18 @@ if menu == "📊 Consultar Estoque":
     df = buscar_dados("produtos")
     
     if not df.empty:
-        # FILTROS E EXPORTAÇÃO
         col_busca, col_exp = st.columns([3, 1])
         termo = col_busca.text_input("🔍 Pesquisar por nome, marca ou categoria").lower()
         
-        # Aplicar filtro
         df_filtrado = df[
             df['nome'].str.lower().str.contains(termo) | 
             df['marca'].str.lower().str.contains(termo) |
             df['categoria'].str.lower().str.contains(termo)
         ]
 
-        # Botão Exportar
         csv = df_filtrado.to_csv(index=False).encode('utf-8')
         col_exp.download_button("📥 Baixar Planilha CSV", csv, "estoque.csv", "text/csv")
 
-        # Alertas
         alertas = df[df['quantidade'] <= df['alerta']]
         if not alertas.empty:
             with st.expander(f"🚨 Existem {len(alertas)} itens com estoque baixo!", expanded=False):
@@ -146,51 +142,89 @@ elif menu == "🆕 Cadastrar Produto":
                 st.success("Cadastrado!")
             else: st.error("Preencha Nome e Marca")
 
-# --- TELA: ADMINISTRAÇÃO (EDIÇÃO E EXCLUSÃO) ---
+# --- TELA: ADMINISTRAÇÃO (EDIÇÃO E EXCLUSÃO COM BUSCA) ---
 elif menu == "🔧 Administração (Admin)":
     st.title("🔧 Painel Administrativo")
     if st.session_state.nivel != "admin":
-        st.error("Acesso negado.")
+        st.error("Acesso negado. Apenas administradores podem acessar esta tela.")
     else:
         df = buscar_dados("produtos")
         if not df.empty:
             aba_edit, aba_del = st.tabs(["✏️ Editar Produto", "🗑️ Excluir Produto"])
             
             with aba_edit:
-                sel = st.selectbox("Selecione para editar", df['nome'].tolist())
-                p = df[df['nome'] == sel].iloc[0]
-                with st.form("edit_f"):
-                    en = st.text_input("Nome", value=p['nome'])
-                    em = st.text_input("Marca", value=p['marca'])
-                    ec = st.text_input("Categoria", value=p['categoria'])
-                    ea = st.number_input("Alerta", value=int(p['alerta']))
-                    if st.form_submit_button("Salvar Alterações"):
-                        supabase.table("produtos").update({"nome":en,"marca":em,"categoria":ec,"alerta":int(ea)}).eq("id", p['id']).execute()
-                        st.success("Atualizado!")
-                        st.rerun()
+                st.subheader("Buscar e Editar")
+                # Filtro de busca para facilitar a edição
+                busca_admin = st.text_input("🔍 Digite o nome ou categoria para localizar o item").lower()
+                
+                df_filtrado_admin = df[
+                    df['nome'].str.lower().str.contains(busca_admin) | 
+                    df['categoria'].str.lower().str.contains(busca_admin)
+                ]
+
+                if not df_filtrado_admin.empty:
+                    # Dicionário para o selectbox mostrar Nome + Marca
+                    opcoes_edit = {f"{r['nome']} ({r['marca']}) - {r['categoria']}": r for _, r in df_filtrado_admin.iterrows()}
+                    sel_label = st.selectbox("Selecione o produto para editar", list(opcoes_edit.keys()))
+                    p_escolhido = opcoes_edit[sel_label]
+
+                    with st.form("edit_f"):
+                        col_a, col_b = st.columns(2)
+                        en = col_a.text_input("Nome", value=p_escolhido['nome'])
+                        em = col_b.text_input("Marca", value=p_escolhido['marca'])
+                        ec = col_a.text_input("Categoria", value=p_escolhido['categoria'])
+                        ea = col_b.number_input("Alerta Mínimo", value=int(p_escolhido['alerta']))
+                        
+                        if st.form_submit_button("Salvar Alterações", use_container_width=True):
+                            try:
+                                supabase.table("produtos").update({
+                                    "nome": en, "marca": em, "categoria": ec, "alerta": int(ea)
+                                }).eq("id", p_escolhido['id']).execute()
+                                st.success(f"✅ {en} atualizado com sucesso!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao atualizar: {e}")
+                else:
+                    st.warning("Nenhum produto encontrado com este termo.")
             
             with aba_del:
+                st.subheader("Excluir Item")
                 sel_d = st.selectbox("Selecione para EXCLUIR", df['nome'].tolist())
-                if st.button(f"Confirmar Exclusão de {sel_d}"):
+                if st.button(f"Confirmar Exclusão de {sel_d}", type="primary"):
                     id_d = df[df['nome'] == sel_d]['id'].values[0]
                     supabase.table("produtos").delete().eq("id", id_d).execute()
+                    st.success("Item removido!")
                     st.rerun()
 
 # --- TELA: HISTÓRICO ---
 elif menu == "📜 Histórico Geral":
     st.title("📜 Histórico")
-    res = supabase.table("historico").select("*").order("data", desc=True).limit(100).execute()
+    res = supabase.table("historico").select("*").order("data", desc=True).limit(200).execute()
     if res.data:
         df_h = pd.DataFrame(res.data)
+        st.dataframe(df_h, use_container_width=True, hide_index=True)
         csv_h = df_h.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Baixar Histórico CSV", csv_h, "historico.csv")
-        st.dataframe(df_h, use_container_width=True)
+    else:
+        st.info("Nenhum registro no histórico.")
 
 # --- TELA: GERENCIAR USUÁRIOS ---
 elif menu == "👥 Gerenciar Usuários":
-    st.title("👥 Usuários")
+    st.title("👥 Gerenciar Usuários")
     if st.session_state.nivel == "admin":
         df_u = buscar_dados("usuarios")
-        st.table(df_u[['usuario', 'nivel']])
+        if not df_u.empty:
+            st.table(df_u[['usuario', 'nivel']])
+            
+            with st.expander("➕ Adicionar Novo Usuário"):
+                with st.form("novo_user"):
+                    nu = st.text_input("Novo Usuário").strip().lower()
+                    ns = st.text_input("Senha", type="password")
+                    nv = st.selectbox("Nível", ["user", "admin"])
+                    if st.form_submit_button("Criar Usuário"):
+                        if nu and ns:
+                            supabase.table("usuarios").insert({"usuario": nu, "senha": ns, "nivel": nv}).execute()
+                            st.success("Usuário criado!")
+                            st.rerun()
     else:
-        st.error("Acesso restrito.")
+        st.error("Acesso restrito a administradores.")
