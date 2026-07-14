@@ -97,61 +97,120 @@ if menu == "📊 Consultar Estoque":
     else:
         st.info("Nenhum produto encontrado.")
 
-# --- TELA: ENTRADA / SAÍDA (COM BUSCA) ---
+# --- TELA: ENTRADA / SAÍDA ---
 elif menu == "🔄 Entrada / Saída":
     st.title("🔄 Movimentação de Itens")
     df = buscar_dados("produtos")
     
     if not df.empty:
-        # Adicionado Campo de Busca para filtrar o Selectbox
-        termo_busca = st.text_input("🔍 Digite para pesquisar o produto (Nome, Marca ou Categoria)").lower()
+        # Busca para filtrar o selectbox
+        busca_mov = st.text_input("🔍 Digite para filtrar (Nome, Marca ou Categoria)").lower()
         
-        # Filtra o dataframe com base na busca
         df_filtrado_mov = df[
-            df['nome'].str.lower().str.contains(termo_busca) | 
-            df['marca'].str.lower().str.contains(termo_busca) |
-            df['categoria'].str.lower().str.contains(termo_busca)
+            df['nome'].str.lower().str.contains(busca_mov) | 
+            df['marca'].str.lower().str.contains(busca_mov) |
+            df['categoria'].str.lower().str.contains(busca_mov)
         ]
 
         if not df_filtrado_mov.empty:
-            # Opções baseadas no filtro
-            opcoes = {f"{p['nome']} - {p['marca']} ({p['categoria']}) | Qtd Atual: {p['quantidade']}": p for _, p in df_filtrado_mov.iterrows()}
-            escolha = st.selectbox("Selecione o produto na lista", list(opcoes.keys()))
+            opcoes = {f"{p['nome']} - {p['marca']} ({p['categoria']}) | Qtd: {p['quantidade']}": p for _, p in df_filtrado_mov.iterrows()}
+            escolha = st.selectbox("Selecione o produto", list(opcoes.keys()))
             item_sel = opcoes[escolha]
             
             st.divider()
             col1, col2 = st.columns(2)
-            qtd_mov = col1.number_input(f"Quantidade para movimentar", min_value=1, step=1)
-            tipo_op = col2.radio("Tipo de Operação", ["Entrada (Compra/Reposição)", "Saída (Baixa/Uso)"])
+            qtd_mov = col1.number_input("Quantidade", min_value=1, step=1)
+            tipo_op = col2.radio("Operação", ["Entrada (Compra)", "Saída (Baixa)"])
             
             if st.button("Confirmar Movimentação", use_container_width=True, type="primary"):
-                # Cálculo da nova quantidade
-                if "Entrada" in tipo_op:
-                    nova_qtd = item_sel['quantidade'] + qtd_mov
-                else:
-                    nova_qtd = item_sel['quantidade'] - qtd_mov
-
+                nova_qtd = item_sel['quantidade'] + qtd_mov if "Entrada" in tipo_op else item_sel['quantidade'] - qtd_mov
+                
                 if nova_qtd < 0:
-                    st.error(f"❌ Erro: A saída de {qtd_mov} unidades deixaria o estoque negativo (Atual: {item_sel['quantidade']}).")
+                    st.error("❌ Saldo insuficiente para realizar essa saída!")
                 else:
                     try:
-                        # Atualiza a tabela de produtos
                         supabase.table("produtos").update({"quantidade": int(nova_qtd)}).eq("id", item_sel['id']).execute()
-                        
-                        # Registra no histórico
                         supabase.table("historico").insert({
-                            "operador": st.session_state.user, 
-                            "acao": tipo_op, 
-                            "produto": item_sel['nome'], 
-                            "quantidade": int(qtd_mov), 
+                            "operador": st.session_state.user, "acao": tipo_op, 
+                            "produto": item_sel['nome'], "quantidade": int(qtd_mov), 
                             "data": datetime.now().isoformat()
                         }).execute()
-                        
-                        st.success(f"✅ Movimentação realizada! Novo estoque de {item_sel['nome']}: {nova_qtd}")
-                        st.balloons()
-                        # Pequeno delay para o usuário ver a mensagem antes de recarregar
+                        st.success(f"✅ Movimentação de {item_sel['nome']} realizada!")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Erro ao processar: {e}")
+                        st.error(f"Erro: {e}")
         else:
-            st.warning("Nenhum produto encontr
+            st.warning("Nenhum produto encontrado com este termo.")
+
+# --- TELA: CADASTRAR PRODUTO ---
+elif menu == "🆕 Cadastrar Produto":
+    st.title("🆕 Novo Produto")
+    with st.form("novo_p"):
+        n = st.text_input("Nome")
+        m = st.text_input("Marca")
+        cat = st.text_input("Categoria")
+        q = st.number_input("Qtd Inicial", min_value=0)
+        a = st.number_input("Alerta Mínimo", min_value=1)
+        if st.form_submit_button("Cadastrar"):
+            if n and m:
+                supabase.table("produtos").insert({"nome":n,"marca":m,"categoria":cat,"quantidade":int(q),"alerta":int(a)}).execute()
+                st.success("Produto cadastrado!")
+            else: st.error("Preencha Nome e Marca")
+
+# --- TELA: ADMINISTRAÇÃO ---
+elif menu == "🔧 Administração (Admin)":
+    st.title("🔧 Painel Administrativo")
+    if st.session_state.nivel != "admin":
+        st.error("Acesso negado.")
+    else:
+        df = buscar_dados("produtos")
+        if not df.empty:
+            aba_edit, aba_del = st.tabs(["✏️ Editar Produto", "🗑️ Excluir Produto"])
+            
+            with aba_edit:
+                # Busca para filtrar o selectbox de edição
+                busca_edit = st.text_input("🔍 Buscar item para editar").lower()
+                df_filtrado_edit = df[
+                    df['nome'].str.lower().str.contains(busca_edit) | 
+                    df['categoria'].str.lower().str.contains(busca_edit)
+                ]
+
+                if not df_filtrado_edit.empty:
+                    opcoes_edit = {f"{r['nome']} ({r['marca']})": r for _, r in df_filtrado_edit.iterrows()}
+                    sel_item = st.selectbox("Selecione o item", list(opcoes_edit.keys()))
+                    p = opcoes_edit[sel_item]
+
+                    with st.form("edit_f"):
+                        en = st.text_input("Nome", value=p['nome'])
+                        em = st.text_input("Marca", value=p['marca'])
+                        ec = st.text_input("Categoria", value=p['categoria'])
+                        ea = st.number_input("Alerta", value=int(p['alerta']))
+                        if st.form_submit_button("Salvar Alterações"):
+                            supabase.table("produtos").update({"nome":en,"marca":em,"categoria":ec,"alerta":int(ea)}).eq("id", p['id']).execute()
+                            st.success("Atualizado!")
+                            st.rerun()
+                else:
+                    st.warning("Nenhum produto encontrado para editar.")
+            
+            with aba_del:
+                sel_d = st.selectbox("Selecione para EXCLUIR", df['nome'].tolist())
+                if st.button(f"Confirmar Exclusão de {sel_d}", type="primary"):
+                    id_d = df[df['nome'] == sel_d]['id'].values[0]
+                    supabase.table("produtos").delete().eq("id", id_d).execute()
+                    st.success("Excluído com sucesso!")
+                    st.rerun()
+
+# --- TELA: HISTÓRICO ---
+elif menu == "📜 Histórico Geral":
+    st.title("📜 Histórico")
+    res = supabase.table("historico").select("*").order("data", desc=True).limit(200).execute()
+    if res.data:
+        df_h = pd.DataFrame(res.data)
+        st.dataframe(df_h, use_container_width=True, hide_index=True)
+
+# --- TELA: GERENCIAR USUÁRIOS ---
+elif menu == "👥 Gerenciar Usuários":
+    st.title("👥 Usuários")
+    if st.session_state.nivel == "admin":
+        df_u = buscar_dados("usuarios")
+        st.table(df_u[['usuario', 'nivel']])
