@@ -18,6 +18,7 @@ supabase = get_supabase()
 # --- 3. FUNÇÕES AUXILIARES ---
 def buscar_dados(tabela):
     try:
+        # Usamos aspas para tabelas com acento no Supabase
         res = supabase.table(tabela).select("*").execute()
         return pd.DataFrame(res.data)
     except Exception as e:
@@ -37,12 +38,13 @@ if not st.session_state.logado:
         p = st.text_input("Senha", type="password").strip()
         if st.form_submit_button("Entrar", use_container_width=True):
             try:
-                res = supabase.table("usuarios").select("*").eq("usuario", u).eq("senha", p).execute()
+                # Busca na tabela 'usuários'
+                res = supabase.table("usuários").select("*").eq("usuario", u).eq("senha", p).execute()
                 if res.data:
                     user_data = res.data[0]
                     st.session_state.logado = True
                     st.session_state.user = u
-                    # Armazena todas as permissões no estado da sessão
+                    # Mapeia as permissões do banco para a sessão
                     st.session_state.perms = {
                         "nivel": user_data.get('nivel', 'user'),
                         "consultar": user_data.get('can_consultar', True),
@@ -63,13 +65,14 @@ if not st.session_state.logado:
 st.sidebar.title(f"👋 Olá, {st.session_state.user.capitalize()}")
 st.sidebar.write(f"Nível: **{st.session_state.perms['nivel'].upper()}**")
 
+# Constrói o menu baseado nas permissões do usuário
 opcoes_menu = []
-if st.session_state.perms['consultar']: opcoes_menu.append("📊 Consultar Estoque")
-if st.session_state.perms['movimentar']: opcoes_menu.append("🔄 Entrada / Saída")
-if st.session_state.perms['cadastrar']:  opcoes_menu.append("🆕 Cadastrar Produto")
-if st.session_state.perms['admin']:      opcoes_menu.append("🔧 Administração (Admin)")
-if st.session_state.perms['historico']:  opcoes_menu.append("📜 Histórico Geral")
-if st.session_state.perms['usuarios']:   opcoes_menu.append("👥 Gerenciar Usuários")
+if st.session_state.perms.get('consultar'): opcoes_menu.append("📊 Consultar Estoque")
+if st.session_state.perms.get('movimentar'): opcoes_menu.append("🔄 Entrada / Saída")
+if st.session_state.perms.get('cadastrar'):  opcoes_menu.append("🆕 Cadastrar Produto")
+if st.session_state.perms.get('admin'):      opcoes_menu.append("🔧 Administração (Admin)")
+if st.session_state.perms.get('historico'):  opcoes_menu.append("📜 Histórico Geral")
+if st.session_state.perms.get('usuarios'):   opcoes_menu.append("👥 Gerenciar Usuários")
 
 menu = st.sidebar.radio("Navegação", opcoes_menu)
 
@@ -85,31 +88,50 @@ if menu == "📊 Consultar Estoque":
     df = buscar_dados("produtos")
     if not df.empty:
         termo = st.text_input("🔍 Pesquisar por nome, marca ou categoria").lower()
-        df_filtrado = df[df['nome'].str.lower().str.contains(termo) | df['marca'].str.lower().str.contains(termo)]
+        df_filtrado = df[
+            df['nome'].str.lower().str.contains(termo) | 
+            df['marca'].str.lower().str.contains(termo) |
+            df['categoria'].str.lower().str.contains(termo)
+        ]
         st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhum produto cadastrado.")
 
 # --- TELA: ENTRADA / SAÍDA ---
 elif menu == "🔄 Entrada / Saída":
-    st.title("🔄 Movimentação")
+    st.title("🔄 Movimentação de Itens")
     df = buscar_dados("produtos")
     if not df.empty:
-        escolha = st.selectbox("Selecione o produto", df['nome'].tolist())
-        item_sel = df[df['nome'] == escolha].iloc[0]
+        opcoes = {f"{p['nome']} - {p['marca']} | Qtd Atual: {p['quantidade']}": p for _, p in df.iterrows()}
+        escolha = st.selectbox("Selecione o produto", list(opcoes.keys()))
+        item_sel = opcoes[escolha]
         
-        qtd_mov = st.number_input("Quantidade", min_value=1)
-        tipo_op = st.radio("Operação", ["Entrada (Compra)", "Saída (Baixa)"])
+        col1, col2 = st.columns(2)
+        qtd_mov = col1.number_input("Quantidade", min_value=1, step=1)
+        tipo_op = col2.radio("Operação", ["Entrada (Compra)", "Saída (Baixa)"])
         
-        if st.button("Confirmar"):
+        if st.button("Confirmar Movimentação", use_container_width=True, type="primary"):
             nova_qtd = item_sel['quantidade'] + qtd_mov if "Entrada" in tipo_op else item_sel['quantidade'] - qtd_mov
+            
             if nova_qtd < 0:
-                st.error("Saldo insuficiente!")
+                st.error("❌ Saldo insuficiente!")
             else:
-                supabase.table("produtos").update({"quantidade": int(nova_qtd)}).eq("id", item_sel['id']).execute()
-                supabase.table("historico").insert({"operador": st.session_state.user, "acao": tipo_op, "produto": item_sel['nome'], "quantidade": int(qtd_mov), "data": datetime.now().isoformat()}).execute()
-                st.success("Feito!")
-                st.rerun()
+                try:
+                    supabase.table("produtos").update({"quantidade": int(nova_qtd)}).eq("id", item_sel['id']).execute()
+                    # Salva no histórico (tabela com acento)
+                    supabase.table("histórico").insert({
+                        "operador": st.session_state.user, 
+                        "acao": tipo_op, 
+                        "produto": item_sel['nome'], 
+                        "quantidade": int(qtd_mov), 
+                        "data": datetime.now().isoformat()
+                    }).execute()
+                    st.success(f"✅ Movimentação realizada!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
 
-# --- TELA: CADASTRAR PRODUTO (COM VALIDAÇÃO DE DUPLICIDADE) ---
+# --- TELA: CADASTRAR PRODUTO (COM TRAVA DE DUPLICIDADE) ---
 elif menu == "🆕 Cadastrar Produto":
     st.title("🆕 Novo Produto")
     with st.form("novo_p"):
@@ -117,81 +139,127 @@ elif menu == "🆕 Cadastrar Produto":
         m = st.text_input("Marca")
         cat = st.text_input("Categoria")
         q = st.number_input("Qtd Inicial", min_value=0)
-        a = st.number_input("Alerta Mínimo", min_value=1)
+        a = st.number_input("Alerta Estoque Baixo", min_value=1)
         
-        if st.form_submit_button("Cadastrar"):
+        if st.form_submit_button("Cadastrar Produto"):
             if n and m:
-                # VERIFICAÇÃO DE DUPLICIDADE
+                # Verifica se já existe um produto com o mesmo nome
                 check = supabase.table("produtos").select("id").eq("nome", n).execute()
                 if check.data:
-                    st.error(f"❌ Erro: Já existe um produto cadastrado com o nome '{n}'.")
+                    st.error(f"❌ O produto '{n}' já existe no sistema!")
                 else:
-                    supabase.table("produtos").insert({"nome":n,"marca":m,"categoria":cat,"quantidade":int(q),"alerta":int(a)}).execute()
-                    st.success("Produto cadastrado com sucesso!")
+                    supabase.table("produtos").insert({
+                        "nome": n, "marca": m, "categoria": cat, 
+                        "quantidade": int(q), "alerta": int(a)
+                    }).execute()
+                    st.success("✅ Produto cadastrado com sucesso!")
             else:
-                st.error("Preencha os campos obrigatórios.")
+                st.error("Nome e Marca são obrigatórios.")
 
-# --- TELA: GERENCIAR USUÁRIOS (AVANÇADO) ---
+# --- TELA: ADMINISTRAÇÃO (EDITAR/EXCLUIR PRODUTOS) ---
+elif menu == "🔧 Administração (Admin)":
+    st.title("🔧 Painel Administrativo")
+    df = buscar_dados("produtos")
+    if not df.empty:
+        aba_e, aba_d = st.tabs(["✏️ Editar Produto", "🗑️ Excluir Produto"])
+        with aba_e:
+            sel = st.selectbox("Selecione para editar", df['nome'].tolist())
+            p = df[df['nome'] == sel].iloc[0]
+            with st.form("edit_p"):
+                en = st.text_input("Nome", value=p['nome'])
+                em = st.text_input("Marca", value=p['marca'])
+                ec = st.text_input("Categoria", value=p['categoria'])
+                ea = st.number_input("Alerta", value=int(p['alerta']))
+                if st.form_submit_button("Salvar Alterações"):
+                    supabase.table("produtos").update({"nome":en, "marca":em, "categoria":ec, "alerta":int(ea)}).eq("id", p['id']).execute()
+                    st.success("Atualizado!")
+                    st.rerun()
+        with aba_d:
+            sel_del = st.selectbox("Selecione para EXCLUIR", df['nome'].tolist(), key="del")
+            if st.button(f"CONFIRMAR EXCLUSÃO DE {sel_del}", type="primary"):
+                id_del = df[df['nome'] == sel_del]['id'].values[0]
+                supabase.table("produtos").delete().eq("id", id_del).execute()
+                st.warning("Produto removido.")
+                st.rerun()
+
+# --- TELA: HISTÓRICO ---
+elif menu == "📜 Histórico Geral":
+    st.title("📜 Histórico de Atividades")
+    df_h = buscar_dados("histórico")
+    if not df_h.empty:
+        st.dataframe(df_h.sort_values("data", ascending=False), use_container_width=True, hide_index=True)
+
+# --- TELA: GERENCIAR USUÁRIOS (VERSÃO CORRIGIDA) ---
 elif menu == "👥 Gerenciar Usuários":
     st.title("👥 Gestão de Acessos")
-    aba_list, aba_add, aba_edit = st.tabs(["Lista de Usuários", "➕ Novo Usuário", "✏️ Editar/Permissões"])
+    aba_l, aba_a, aba_e = st.tabs(["Lista", "➕ Novo Usuário", "✏️ Editar / Senha"])
     
-    df_u = buscar_dados("usuarios")
+    # 1. Lista
+    with aba_l:
+        df_u = buscar_dados("usuários")
+        if not df_u.empty:
+            st.dataframe(df_u.drop(columns=['senha'], errors='ignore'), use_container_width=True)
 
-    with aba_list:
-        st.dataframe(df_u.drop(columns=['senha']), use_container_width=True)
-
-    with aba_add:
-        with st.form("add_user"):
+    # 2. Adicionar Novo
+    with aba_a:
+        with st.form("add_user_form"):
             new_u = st.text_input("Login").strip().lower()
-            new_p = st.text_input("Senha", type="password")
-            new_n = st.selectbox("Nível", ["user", "admin", "gerente"])
-            st.write("--- Permissões de Tela ---")
-            c1, c2, c3 = st.columns(3)
-            p_con = c1.checkbox("Consultar", True)
-            p_mov = c1.checkbox("Movimentar")
-            p_cad = c2.checkbox("Cadastrar")
-            p_adm = c2.checkbox("Administrar (Editar/Excluir)")
-            p_his = c3.checkbox("Ver Histórico")
-            p_usu = c3.checkbox("Gerenciar Usuários")
+            new_s = st.text_input("Senha", type="password")
+            new_n = st.selectbox("Nível", ["user", "gerente", "admin"])
+            st.write("--- Permissões de Telas ---")
+            c1, c2 = st.columns(2)
+            p1 = c1.checkbox("Consultar Estoque", True)
+            p2 = c1.checkbox("Realizar Movimentações")
+            p3 = c1.checkbox("Cadastrar Produtos")
+            p4 = c2.checkbox("Administração (Editar/Excluir)")
+            p5 = c2.checkbox("Ver Histórico")
+            p6 = c2.checkbox("Gerenciar Usuários")
             
             if st.form_submit_button("Criar Usuário"):
-                if new_u and new_p:
-                    supabase.table("usuarios").insert({
-                        "usuario": new_u, "senha": new_p, "nivel": new_n,
-                        "can_consultar": p_con, "can_movimentar": p_mov,
-                        "can_cadastrar": p_cad, "can_admin": p_adm,
-                        "can_historico": p_his, "can_usuarios": p_usu
+                if new_u and new_s:
+                    supabase.table("usuários").insert({
+                        "usuario": new_u, "senha": new_s, "nivel": new_n,
+                        "can_consultar": p1, "can_movimentar": p2, "can_cadastrar": p3,
+                        "can_admin": p4, "can_historico": p5, "can_usuarios": p6
                     }).execute()
                     st.success("Usuário criado!")
                     st.rerun()
+                else:
+                    st.error("Preencha todos os campos.")
 
-    with aba_edit:
-        user_sel = st.selectbox("Selecione o usuário para alterar", df_u['usuario'].tolist())
-        u_data = df_u[df_u['usuario'] == user_sel].iloc[0]
-        
-        with st.form("edit_user"):
-            edit_p = st.text_input("Nova Senha (deixe em branco para manter)", type="password")
-            edit_n = st.selectbox("Nível", ["user", "admin", "gerente"], index=["user", "admin", "gerente"].index(u_data['nivel']))
+    # 3. Editar Usuário (Correção do ValueError)
+    with aba_e:
+        df_u = buscar_dados("usuários")
+        if not df_u.empty:
+            user_edit = st.selectbox("Usuário para alterar", df_u['usuario'].tolist())
+            u_data = df_u[df_u['usuario'] == user_edit].iloc[0]
             
-            st.write("--- Ajustar Permissões ---")
-            col1, col2, col3 = st.columns(3)
-            ec_con = col1.checkbox("Consultar", value=bool(u_data['can_consultar']))
-            ec_mov = col1.checkbox("Movimentar", value=bool(u_data['can_movimentar']))
-            ec_cad = col2.checkbox("Cadastrar", value=bool(u_data['can_cadastrar']))
-            ec_adm = col2.checkbox("Administrar", value=bool(u_data['can_admin']))
-            ec_his = col3.checkbox("Ver Histórico", value=bool(u_data['can_historico']))
-            ec_usu = col3.checkbox("Gerenciar Usuários", value=bool(u_data['can_usuarios']))
-            
-            if st.form_submit_button("Salvar Alterações"):
-                update_data = {
-                    "nivel": edit_n,
-                    "can_consultar": ec_con, "can_movimentar": ec_mov,
-                    "can_cadastrar": ec_cad, "can_admin": ec_adm,
-                    "can_historico": ec_his, "can_usuarios": ec_usu
-                }
-                if edit_p: update_data["senha"] = edit_p
+            with st.form("edit_user_form"):
+                nova_senha = st.text_input("Nova Senha (vazio mantém)", type="password")
                 
-                supabase.table("usuarios").update(update_data).eq("usuario", user_sel).execute()
-                st.success("Usuário atualizado!")
-                st.rerun()
+                # Tratamento seguro do Nível
+                niveis = ["user", "gerente", "admin"]
+                nivel_atual = str(u_data.get('nivel', 'user')).lower()
+                idx = niveis.index(nivel_atual) if nivel_atual in niveis else 0
+                
+                edit_n = st.selectbox("Nível", niveis, index=idx)
+                
+                st.write("--- Ajustar Permissões ---")
+                col1, col2 = st.columns(2)
+                e1 = col1.checkbox("Consultar", value=bool(u_data.get('can_consultar', True)))
+                e2 = col1.checkbox("Movimentar", value=bool(u_data.get('can_movimentar', False)))
+                e3 = col1.checkbox("Cadastrar", value=bool(u_data.get('can_cadastrar', False)))
+                e4 = col2.checkbox("Administrar", value=bool(u_data.get('can_admin', False)))
+                e5 = col2.checkbox("Histórico", value=bool(u_data.get('can_historico', False)))
+                e6 = col2.checkbox("Gerenciar Usuários", value=bool(u_data.get('can_usuarios', False)))
+                
+                if st.form_submit_button("Salvar Alterações"):
+                    upd = {
+                        "nivel": edit_n, "can_consultar": e1, "can_movimentar": e2,
+                        "can_cadastrar": e3, "can_admin": e4, "can_historico": e5, "can_usuarios": e6
+                    }
+                    if nova_senha: upd["senha"] = nova_senha
+                    
+                    supabase.table("usuários").update(upd).eq("usuario", user_edit).execute()
+                    st.success("Usuário atualizado!")
+                    st.rerun()
