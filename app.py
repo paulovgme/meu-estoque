@@ -188,12 +188,12 @@ elif menu == "📜 Histórico Geral":
 # --- TELA: GERENCIAR USUÁRIOS ---
 elif menu == "👥 Gerenciar Usuários":
     st.title("👥 Gestão de Usuários")
-    aba_l, aba_a, aba_e = st.tabs(["📋 Lista de Usuários", "➕ Novo Usuário", "✏️ Editar Permissões/Nome"])
+    # Adicionada a aba de Excluir
+    aba_l, aba_a, aba_e, aba_d = st.tabs(["📋 Lista de Usuários", "➕ Novo Usuário", "✏️ Editar Usuário", "🗑️ Excluir Usuário"])
     df_u = buscar_dados("usuarios")
 
     with aba_l:
         if not df_u.empty:
-            # Mostra Nome Real, Login e Nível
             st.dataframe(df_u[['nome', 'usuario', 'nivel']], use_container_width=True, hide_index=True)
 
     with aba_a:
@@ -223,7 +223,6 @@ elif menu == "👥 Gerenciar Usuários":
 
     with aba_e:
         if not df_u.empty:
-            # Seleciona pelo login, mas mostra o nome junto
             user_edit = st.selectbox("Escolha o usuário para editar", df_u['usuario'].tolist(), format_func=lambda x: f"{x} ({df_u[df_u['usuario']==x]['nome'].values[0]})")
             u_sel = df_u[df_u['usuario'] == user_edit].iloc[0]
             with st.form("edit_u"):
@@ -245,3 +244,24 @@ elif menu == "👥 Gerenciar Usuários":
                     supabase.table("usuarios").update(upd).eq("usuario", user_edit).execute()
                     st.success("Dados do usuário atualizados!")
                     st.rerun()
+
+    # --- NOVA ABA: EXCLUIR USUÁRIO ---
+    with aba_d:
+        if not df_u.empty:
+            st.warning("A exclusão de um usuário é permanente e não pode ser desfeita.")
+            user_del = st.selectbox("Selecione o usuário para EXCLUIR", df_u['usuario'].tolist(), key="del_u_select")
+            
+            # Trava de segurança: não deixar excluir o próprio usuário logado
+            if user_del == st.session_state.user:
+                st.error("Você não pode excluir o seu próprio usuário enquanto está logado nele.")
+            else:
+                u_del_info = df_u[df_u['usuario'] == user_del].iloc[0]
+                st.write(f"Usuário selecionado: **{u_del_info['nome']}** ({user_del})")
+                
+                if st.button(f"Confirmar Exclusão de {user_del}", type="primary"):
+                    try:
+                        supabase.table("usuarios").delete().eq("usuario", user_del).execute()
+                        st.success(f"Usuário {user_del} removido com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao excluir usuário: {e}")
