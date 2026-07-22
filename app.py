@@ -61,7 +61,7 @@ if not st.session_state.logado:
                 st.error(f"Erro de conexão: {e}")
     st.stop()
 
-# --- 5. MENU LATERAL DINÂMICO ---
+# --- 5. MENU LATERAL ---
 st.sidebar.title(f"👋 Olá, {st.session_state.nome_real}")
 st.sidebar.write(f"Nível: **{st.session_state.perms.get('nivel', 'comum').upper()}**")
 
@@ -81,7 +81,6 @@ if st.sidebar.button("Sair / Logoff"):
 
 # --- 6. TELAS DO SISTEMA ---
 
-# --- TELA: CONSULTAR ESTOQUE ---
 if menu == "📊 Consultar Estoque":
     st.title("📊 Consultar Estoque")
     df = buscar_dados("produtos")
@@ -111,10 +110,10 @@ if menu == "📊 Consultar Estoque":
                         n_cat = c2.text_input("Categoria", value=p_dados['categoria'])
                         if st.form_submit_button("Salvar Correção"):
                             supabase.table("produtos").update({"nome": n_n, "marca": n_m, "modelo": n_mod, "categoria": n_cat}).eq("id", id_sel).execute()
-                            st.success("Atualizado!")
+                            st.success("Produto corrigido com sucesso!")
+                            time.sleep(1.5)
                             st.rerun()
 
-# --- TELA: ENTRADA / SAÍDA ---
 elif menu == "🔄 Entrada / Saída":
     st.title("🔄 Movimentação")
     df = buscar_dados("produtos")
@@ -130,10 +129,10 @@ elif menu == "🔄 Entrada / Saída":
             else:
                 supabase.table("produtos").update({"quantidade": int(nova_qtd)}).eq("id", item_sel['id']).execute()
                 supabase.table("historico").insert({"operador": st.session_state.nome_real, "acao": tipo_op, "produto": item_sel['nome'], "quantidade": int(qtd_mov), "data": datetime.now().isoformat()}).execute()
-                st.success("Concluído!")
+                st.success("Movimentação registrada!")
+                time.sleep(1)
                 st.rerun()
 
-# --- TELA: CADASTRAR PRODUTO ---
 elif menu == "🆕 Cadastrar Produto":
     st.title("🆕 Novo Produto")
     with st.form("novo_p", clear_on_submit=True):
@@ -149,15 +148,11 @@ elif menu == "🆕 Cadastrar Produto":
                 if check.data: st.error("Produto já existe!")
                 else:
                     supabase.table("produtos").insert({"nome":n, "marca":m, "modelo":mod, "categoria":cat, "quantidade":int(q), "alerta":int(a)}).execute()
-                    # POPUP DE SUCESSO
-                    st.success(f"✅ Produto '{n}' cadastrado com sucesso!")
-                    st.toast("Produto adicionado ao estoque!", icon="📦")
-                    st.balloons()
+                    st.success(f"Produto '{n}' cadastrado com sucesso!")
                     time.sleep(2)
                     st.rerun()
             else: st.error("Nome obrigatório")
 
-# --- TELA: CORREÇÃO DE PRODUTOS ---
 elif menu == "🔧 Correção de Produtos":
     st.title("🔧 Correção de Produtos")
     df = buscar_dados("produtos")
@@ -165,7 +160,7 @@ elif menu == "🔧 Correção de Produtos":
         aba_c, aba_e = st.tabs(["📝 Corrigir Dados", "🚨 Excluir Produto"])
         with aba_c:
             dic_id = {f"ID: {r['id']} - {r['nome']}": r['id'] for _, r in df.iterrows()}
-            sel_id = dic_id[st.selectbox("Selecione o ID", list(dic_id.keys()))]
+            sel_id = dic_id[st.selectbox("Selecione o ID para Corrigir", list(dic_id.keys()))]
             p = df[df['id'] == sel_id].iloc[0]
             with st.form("f_corr"):
                 c1, c2 = st.columns(2)
@@ -176,21 +171,36 @@ elif menu == "🔧 Correção de Produtos":
                 alc = st.number_input("Alerta", value=int(p['alerta']))
                 if st.form_submit_button("Salvar Alterações"):
                     supabase.table("produtos").update({"nome": nc, "marca": mc, "modelo": moc, "categoria": cac, "alerta": int(alc)}).eq("id", sel_id).execute()
-                    st.success("Corrigido!")
+                    st.success("Produto corrigido com sucesso!")
+                    time.sleep(1.5)
                     st.rerun()
+        
         with aba_e:
-            if st.button(f"EXCLUIR PERMANENTEMENTE ID: {sel_id}", type="primary"):
-                supabase.table("produtos").delete().eq("id", sel_id).execute()
-                st.rerun()
+            st.subheader("Pesquisar Produto para Excluir")
+            busca_excluir = st.text_input("🔍 Digite Nome, Marca ou ID para filtrar a lista de exclusão").lower()
+            df_filtro_excluir = df[
+                df['nome'].str.lower().str.contains(busca_excluir, na=False) |
+                df['id'].astype(str).contains(busca_excluir, na=False)
+            ]
+            
+            if not df_filtro_excluir.empty:
+                dic_excl = {f"ID: {r['id']} - {r['nome']}": r['id'] for _, r in df_filtro_excluir.iterrows()}
+                id_para_deletar = dic_excl[st.selectbox("Selecione o produto que deseja APAGAR", list(dic_excl.keys()))]
+                
+                if st.button(f"CONFIRMAR EXCLUSÃO DO ID: {id_para_deletar}", type="primary"):
+                    supabase.table("produtos").delete().eq("id", id_para_deletar).execute()
+                    st.success("Produto excluído com sucesso!")
+                    time.sleep(2)
+                    st.rerun()
+            else:
+                st.warning("Nenhum produto encontrado com este termo.")
 
-# --- TELA: HISTÓRICO ---
 elif menu == "📜 Histórico Geral":
     st.title("📜 Histórico")
     df_h = buscar_dados("historico")
     if not df_h.empty:
         st.dataframe(df_h.sort_values("data", ascending=False), use_container_width=True, hide_index=True)
 
-# --- TELA: GERENCIAR USUÁRIOS ---
 elif menu == "👥 Gerenciar Usuários":
     st.title("👥 Gestão de Usuários")
     aba_l, aba_a, aba_e, aba_d = st.tabs(["📋 Lista de Usuários", "➕ Novo Usuário", "✏️ Editar Usuário", "🗑️ Excluir Usuário"])
@@ -202,8 +212,8 @@ elif menu == "👥 Gerenciar Usuários":
 
     with aba_a:
         with st.form("form_novo_usuario", clear_on_submit=True):
-            new_nome = st.text_input("Nome Completo da Pessoa").strip()
-            new_login = st.text_input("Login de Acesso").lower().strip()
+            new_nome = st.text_input("Nome Completo").strip()
+            new_login = st.text_input("Login").lower().strip()
             new_senha = st.text_input("Senha", type="password")
             new_nivel = st.selectbox("Nível", ["comum", "administrador"])
             st.write("--- Permissões ---")
@@ -221,17 +231,14 @@ elif menu == "👥 Gerenciar Usuários":
                         "can_consultar": p1, "can_movimentar": p2, "can_cadastrar": p3,
                         "can_admin": p4, "can_historico": p5, "can_usuarios": p6
                     }).execute()
-                    # POPUP DE SUCESSO
-                    st.success(f"✅ Usuário '{new_nome}' criado com sucesso!")
-                    st.toast(f"Acesso liberado para {new_login}!", icon="👤")
-                    st.balloons()
+                    st.success(f"Usuário '{new_nome}' cadastrado com sucesso!")
                     time.sleep(2)
                     st.rerun()
                 else: st.error("Preencha todos os campos!")
 
     with aba_e:
         if not df_u.empty:
-            user_edit = st.selectbox("Escolha o usuário para editar", df_u['usuario'].tolist(), format_func=lambda x: f"{x} ({df_u[df_u['usuario']==x]['nome'].values[0]})")
+            user_edit = st.selectbox("Escolha o usuário", df_u['usuario'].tolist(), format_func=lambda x: f"{x} ({df_u[df_u['usuario']==x]['nome'].values[0]})")
             u_sel = df_u[df_u['usuario'] == user_edit].iloc[0]
             with st.form("edit_u"):
                 edit_nome = st.text_input("Nome Completo", value=u_sel.get('nome', ''))
@@ -250,7 +257,8 @@ elif menu == "👥 Gerenciar Usuários":
                     upd = {"nome": edit_nome, "nivel": edit_nivel, "can_consultar": e1, "can_movimentar": e2, "can_cadastrar": e3, "can_admin": e4, "can_historico": e5, "can_usuarios": e6}
                     if edit_senha: upd["senha"] = edit_senha
                     supabase.table("usuarios").update(upd).eq("usuario", user_edit).execute()
-                    st.success("Dados do usuário atualizados!")
+                    st.success("Dados atualizados com sucesso!")
+                    time.sleep(1)
                     st.rerun()
 
     with aba_d:
@@ -262,5 +270,6 @@ elif menu == "👥 Gerenciar Usuários":
             else:
                 if st.button(f"Confirmar Exclusão de {user_del}", type="primary"):
                     supabase.table("usuarios").delete().eq("usuario", user_del).execute()
-                    st.success(f"Usuário {user_del} removido!")
+                    st.success("Usuário excluído com sucesso!")
+                    time.sleep(2)
                     st.rerun()
