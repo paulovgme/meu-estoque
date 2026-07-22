@@ -87,7 +87,6 @@ if menu == "📊 Consultar Estoque":
     df = buscar_dados("produtos")
     if not df.empty:
         termo = st.text_input("🔍 Pesquisar por ID, Nome, Marca ou Modelo").lower()
-        # Filtros corrigidos com .str.contains
         df_filtrado = df[
             df['nome'].str.lower().str.contains(termo, na=False) | 
             df['marca'].str.lower().str.contains(termo, na=False) |
@@ -163,6 +162,7 @@ elif menu == "🔧 Correção de Produtos":
     df = buscar_dados("produtos")
     if not df.empty:
         aba_c, aba_e = st.tabs(["📝 Corrigir Dados", "🚨 Excluir Produto"])
+        
         with aba_c:
             dic_id = {f"ID: {r['id']} - {r['nome']}": r['id'] for _, r in df.iterrows()}
             sel_id = dic_id[st.selectbox("Selecione o ID para Corrigir", list(dic_id.keys()))]
@@ -181,26 +181,27 @@ elif menu == "🔧 Correção de Produtos":
                     st.rerun()
         
         with aba_e:
-            st.subheader("Pesquisar Produto para Excluir")
-            busca_excluir = st.text_input("🔍 Digite Nome, Marca ou ID para filtrar a lista").lower()
+            st.subheader("Excluir Produto por ID")
+            busca_id = st.text_input("Digite a ID que deseja excluir").strip()
             
-            # FILTRO CORRIGIDO: Adicionado .str antes de .contains
-            df_filtro_excluir = df[
-                df['nome'].str.lower().str.contains(busca_excluir, na=False) |
-                df['id'].astype(str).str.contains(busca_excluir, na=False)
-            ]
-            
-            if not df_filtro_excluir.empty:
-                dic_excl = {f"ID: {r['id']} - {r['nome']}": r['id'] for _, r in df_filtro_excluir.iterrows()}
-                id_para_deletar = dic_excl[st.selectbox("Selecione o item para APAGAR", list(dic_excl.keys()))]
+            if busca_id:
+                # Filtra apenas pelo ID exato
+                df_item = df[df['id'].astype(str) == busca_id]
                 
-                if st.button(f"CONFIRMAR EXCLUSÃO DEFINITIVA (ID: {id_para_deletar})", type="primary"):
-                    supabase.table("produtos").delete().eq("id", id_para_deletar).execute()
-                    st.success("Produto excluído com sucesso!")
-                    time.sleep(2)
-                    st.rerun()
-            else:
-                st.warning("Nenhum produto encontrado.")
+                if not df_item.empty:
+                    item_info = df_item.iloc[0]
+                    st.warning(f"Produto encontrado: **{item_info['nome']}** | Marca: **{item_info['marca']}**")
+                    
+                    if st.button(f"CONFIRMAR EXCLUSÃO DEFINITIVA (ID: {busca_id})", type="primary"):
+                        try:
+                            supabase.table("produtos").delete().eq("id", busca_id).execute()
+                            st.success("Produto excluído com sucesso!")
+                            time.sleep(2)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao excluir: {e}")
+                else:
+                    st.error("Nenhum produto encontrado com este ID.")
 
 # --- HISTÓRICO ---
 elif menu == "📜 Histórico Geral":
