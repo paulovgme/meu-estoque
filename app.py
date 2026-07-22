@@ -84,13 +84,14 @@ if menu == "📊 Consultar Estoque":
     df = buscar_dados("produtos")
     
     if not df.empty:
-        # Busca aprimorada (por ID também)
         termo = st.text_input("🔍 Pesquisar por ID, Nome, Marca ou Modelo").lower()
+        
+        # Filtro corrigido com .str.contains()
         df_filtrado = df[
-            df['nome'].str.lower().str.contains(termo) | 
-            df['marca'].str.lower().str.contains(termo) |
-            df['id'].astype(str).contains(termo) |
-            df['modelo'].astype(str).str.lower().str.contains(termo)
+            df['nome'].str.lower().str.contains(termo, na=False) | 
+            df['marca'].str.lower().str.contains(termo, na=False) |
+            df['id'].astype(str).str.contains(termo, na=False) |
+            df['modelo'].astype(str).str.lower().str.contains(termo, na=False)
         ]
         
         st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
@@ -99,26 +100,27 @@ if menu == "📊 Consultar Estoque":
         if st.session_state.perms.get('admin'):
             st.divider()
             with st.expander("✏️ Corrigir produto selecionando pelo ID"):
-                # Criar lista de opções: "ID: 10 | Nome do Produto"
                 lista_opcoes = {f"ID: {row['id']} | {row['nome']}": row['id'] for _, row in df_filtrado.iterrows()}
-                sel_label = st.selectbox("Selecione o ID do produto", list(lista_opcoes.keys()))
-                id_selecionado = lista_opcoes[sel_label]
-                
-                p_dados = df[df['id'] == id_selecionado].iloc[0]
-                
-                with st.form("quick_edit"):
-                    c1, c2 = st.columns(2)
-                    new_n = c1.text_input("Nome", value=p_dados['nome'])
-                    new_m = c1.text_input("Marca", value=p_dados['marca'])
-                    new_mod = c2.text_input("Modelo", value=p_dados.get('modelo', ''))
-                    new_cat = c2.text_input("Categoria", value=p_dados['categoria'])
+                if lista_opcoes:
+                    sel_label = st.selectbox("Selecione o ID do produto", list(lista_opcoes.keys()))
+                    id_selecionado = lista_opcoes[sel_label]
+                    p_dados = df[df['id'] == id_selecionado].iloc[0]
                     
-                    if st.form_submit_button("Salvar Correção"):
-                        supabase.table("produtos").update({
-                            "nome": new_n, "marca": new_m, "modelo": new_mod, "categoria": new_cat
-                        }).eq("id", id_selecionado).execute()
-                        st.success(f"Produto ID {id_selecionado} atualizado!")
-                        st.rerun()
+                    with st.form("quick_edit"):
+                        c1, c2 = st.columns(2)
+                        new_n = c1.text_input("Nome", value=p_dados['nome'])
+                        new_m = c1.text_input("Marca", value=p_dados['marca'])
+                        new_mod = c2.text_input("Modelo", value=str(p_dados.get('modelo', '')) if p_dados.get('modelo') else "")
+                        new_cat = c2.text_input("Categoria", value=p_dados['categoria'])
+                        
+                        if st.form_submit_button("Salvar Correção"):
+                            supabase.table("produtos").update({
+                                "nome": new_n, "marca": new_m, "modelo": new_mod, "categoria": new_cat
+                            }).eq("id", id_selecionado).execute()
+                            st.success(f"Produto ID {id_selecionado} atualizado!")
+                            st.rerun()
+                else:
+                    st.warning("Nenhum produto encontrado para editar.")
     else:
         st.info("Nenhum produto cadastrado.")
 
@@ -127,7 +129,6 @@ elif menu == "🔄 Entrada / Saída":
     st.title("🔄 Movimentação")
     df = buscar_dados("produtos")
     if not df.empty:
-        # Seleção por ID também na movimentação para evitar erros
         opcoes_mov = {f"ID: {p['id']} | {p['nome']}": p for _, p in df.iterrows()}
         escolha = st.selectbox("Selecione o produto (ID | Nome)", list(opcoes_mov.keys()))
         item_sel = opcoes_mov[escolha]
@@ -170,6 +171,7 @@ elif menu == "🆕 Cadastrar Produto":
                         "quantidade":int(q), "alerta":int(a)
                     }).execute()
                     st.success("Cadastrado!")
+                    st.rerun()
             else: st.error("O campo Nome é obrigatório")
 
 # --- TELA: CORREÇÃO DE PRODUTOS ---
@@ -180,7 +182,6 @@ elif menu == "🔧 Correção de Produtos":
         aba_corr, aba_excl = st.tabs(["📝 Corrigir Dados", "🚨 Excluir Produto"])
         
         with aba_corr:
-            # Seleção focada no ID
             dic_id = {f"ID: {row['id']} - {row['nome']}": row['id'] for _, row in df.iterrows()}
             sel_id_label = st.selectbox("Selecione o ID do produto para corrigir", list(dic_id.keys()))
             id_atual = dic_id[sel_id_label]
@@ -189,26 +190,20 @@ elif menu == "🔧 Correção de Produtos":
             with st.form("form_correcao_completa"):
                 st.write(f"Editando informações do **ID {id_atual}**")
                 col_a, col_b = st.columns(2)
-                
                 nome_c = col_a.text_input("Nome", value=p['nome'])
                 marca_c = col_a.text_input("Marca", value=p['marca'])
-                modelo_c = col_b.text_input("Modelo", value=p.get('modelo', ''))
+                modelo_c = col_b.text_input("Modelo", value=str(p.get('modelo', '')) if p.get('modelo') else "")
                 cat_c = col_b.text_input("Categoria", value=p['categoria'])
                 alerta_c = st.number_input("Alerta de Estoque", value=int(p['alerta']))
                 
                 if st.form_submit_button("Salvar Alterações"):
                     supabase.table("produtos").update({
-                        "nome": nome_c,
-                        "marca": marca_c,
-                        "modelo": modelo_c,
-                        "categoria": cat_c,
-                        "alerta": int(alerta_c)
+                        "nome": nome_c, "marca": marca_c, "modelo": modelo_c, "categoria": cat_c, "alerta": int(alerta_c)
                     }).eq("id", id_atual).execute()
                     st.success("Produto corrigido!")
                     st.rerun()
 
         with aba_excl:
-            st.error("CUIDADO: A exclusão apaga o produto permanentemente.")
             if st.button(f"CONFIRMAR EXCLUSÃO DO ID: {id_atual}", type="primary"):
                 supabase.table("produtos").delete().eq("id", id_atual).execute()
                 st.success("Produto excluído.")
