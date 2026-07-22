@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
+import time
 
 # --- 1. CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Sistema TI - Estoque Pro", page_icon="📦", layout="wide")
@@ -135,7 +136,7 @@ elif menu == "🔄 Entrada / Saída":
 # --- TELA: CADASTRAR PRODUTO ---
 elif menu == "🆕 Cadastrar Produto":
     st.title("🆕 Novo Produto")
-    with st.form("novo_p"):
+    with st.form("novo_p", clear_on_submit=True):
         n = st.text_input("Nome do Produto").strip()
         m = st.text_input("Marca")
         mod = st.text_input("Modelo")
@@ -148,7 +149,11 @@ elif menu == "🆕 Cadastrar Produto":
                 if check.data: st.error("Produto já existe!")
                 else:
                     supabase.table("produtos").insert({"nome":n, "marca":m, "modelo":mod, "categoria":cat, "quantidade":int(q), "alerta":int(a)}).execute()
-                    st.success("Cadastrado!")
+                    # POPUP DE SUCESSO
+                    st.success(f"✅ Produto '{n}' cadastrado com sucesso!")
+                    st.toast("Produto adicionado ao estoque!", icon="📦")
+                    st.balloons()
+                    time.sleep(2)
                     st.rerun()
             else: st.error("Nome obrigatório")
 
@@ -188,7 +193,6 @@ elif menu == "📜 Histórico Geral":
 # --- TELA: GERENCIAR USUÁRIOS ---
 elif menu == "👥 Gerenciar Usuários":
     st.title("👥 Gestão de Usuários")
-    # Adicionada a aba de Excluir
     aba_l, aba_a, aba_e, aba_d = st.tabs(["📋 Lista de Usuários", "➕ Novo Usuário", "✏️ Editar Usuário", "🗑️ Excluir Usuário"])
     df_u = buscar_dados("usuarios")
 
@@ -197,7 +201,7 @@ elif menu == "👥 Gerenciar Usuários":
             st.dataframe(df_u[['nome', 'usuario', 'nivel']], use_container_width=True, hide_index=True)
 
     with aba_a:
-        with st.form("form_novo_usuario"):
+        with st.form("form_novo_usuario", clear_on_submit=True):
             new_nome = st.text_input("Nome Completo da Pessoa").strip()
             new_login = st.text_input("Login de Acesso").lower().strip()
             new_senha = st.text_input("Senha", type="password")
@@ -217,7 +221,11 @@ elif menu == "👥 Gerenciar Usuários":
                         "can_consultar": p1, "can_movimentar": p2, "can_cadastrar": p3,
                         "can_admin": p4, "can_historico": p5, "can_usuarios": p6
                     }).execute()
-                    st.success(f"Usuário {new_nome} criado!")
+                    # POPUP DE SUCESSO
+                    st.success(f"✅ Usuário '{new_nome}' criado com sucesso!")
+                    st.toast(f"Acesso liberado para {new_login}!", icon="👤")
+                    st.balloons()
+                    time.sleep(2)
                     st.rerun()
                 else: st.error("Preencha todos os campos!")
 
@@ -245,23 +253,14 @@ elif menu == "👥 Gerenciar Usuários":
                     st.success("Dados do usuário atualizados!")
                     st.rerun()
 
-    # --- NOVA ABA: EXCLUIR USUÁRIO ---
     with aba_d:
         if not df_u.empty:
-            st.warning("A exclusão de um usuário é permanente e não pode ser desfeita.")
+            st.warning("A exclusão de um usuário é permanente.")
             user_del = st.selectbox("Selecione o usuário para EXCLUIR", df_u['usuario'].tolist(), key="del_u_select")
-            
-            # Trava de segurança: não deixar excluir o próprio usuário logado
             if user_del == st.session_state.user:
-                st.error("Você não pode excluir o seu próprio usuário enquanto está logado nele.")
+                st.error("Você não pode excluir a si mesmo.")
             else:
-                u_del_info = df_u[df_u['usuario'] == user_del].iloc[0]
-                st.write(f"Usuário selecionado: **{u_del_info['nome']}** ({user_del})")
-                
                 if st.button(f"Confirmar Exclusão de {user_del}", type="primary"):
-                    try:
-                        supabase.table("usuarios").delete().eq("usuario", user_del).execute()
-                        st.success(f"Usuário {user_del} removido com sucesso!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao excluir usuário: {e}")
+                    supabase.table("usuarios").delete().eq("usuario", user_del).execute()
+                    st.success(f"Usuário {user_del} removido!")
+                    st.rerun()
