@@ -78,42 +78,46 @@ if st.sidebar.button("Sair / Logoff"):
 
 # --- 6. TELAS DO SISTEMA ---
 
-# --- TELA: CONSULTAR ESTOQUE (COM EDIÇÃO RÁPIDA PARA ADM) ---
+# --- TELA: CONSULTAR ESTOQUE ---
 if menu == "📊 Consultar Estoque":
     st.title("📊 Consultar Estoque")
     df = buscar_dados("produtos")
     
     if not df.empty:
-        # Busca
-        termo = st.text_input("🔍 Pesquisar por nome, marca, modelo ou categoria").lower()
+        # Busca aprimorada (por ID também)
+        termo = st.text_input("🔍 Pesquisar por ID, Nome, Marca ou Modelo").lower()
         df_filtrado = df[
             df['nome'].str.lower().str.contains(termo) | 
             df['marca'].str.lower().str.contains(termo) |
+            df['id'].astype(str).contains(termo) |
             df['modelo'].astype(str).str.lower().str.contains(termo)
         ]
         
         st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
 
-        # Recurso de edição rápida (lápis) apenas para Administradores
+        # Edição rápida para Admins via ID
         if st.session_state.perms.get('admin'):
             st.divider()
-            st.subheader("✏️ Edição Rápida de Produto")
-            with st.expander("Clique aqui para selecionar e corrigir um item da lista acima"):
-                produto_para_corrigir = st.selectbox("Selecione o produto para editar", df_filtrado['nome'].tolist())
-                p_dados = df_filtrado[df_filtrado['nome'] == produto_para_corrigir].iloc[0]
+            with st.expander("✏️ Corrigir produto selecionando pelo ID"):
+                # Criar lista de opções: "ID: 10 | Nome do Produto"
+                lista_opcoes = {f"ID: {row['id']} | {row['nome']}": row['id'] for _, row in df_filtrado.iterrows()}
+                sel_label = st.selectbox("Selecione o ID do produto", list(lista_opcoes.keys()))
+                id_selecionado = lista_opcoes[sel_label]
                 
-                with st.form("quick_edit_form"):
-                    col1, col2 = st.columns(2)
-                    new_n = col1.text_input("Nome", value=p_dados['nome'])
-                    new_m = col1.text_input("Marca", value=p_dados['marca'])
-                    new_mod = col2.text_input("Modelo", value=p_dados.get('modelo', ''))
-                    new_cat = col2.text_input("Categoria", value=p_dados['categoria'])
+                p_dados = df[df['id'] == id_selecionado].iloc[0]
+                
+                with st.form("quick_edit"):
+                    c1, c2 = st.columns(2)
+                    new_n = c1.text_input("Nome", value=p_dados['nome'])
+                    new_m = c1.text_input("Marca", value=p_dados['marca'])
+                    new_mod = c2.text_input("Modelo", value=p_dados.get('modelo', ''))
+                    new_cat = c2.text_input("Categoria", value=p_dados['categoria'])
                     
-                    if st.form_submit_button("Salvar Alteração"):
+                    if st.form_submit_button("Salvar Correção"):
                         supabase.table("produtos").update({
                             "nome": new_n, "marca": new_m, "modelo": new_mod, "categoria": new_cat
-                        }).eq("id", p_dados['id']).execute()
-                        st.success("Produto corrigido com sucesso!")
+                        }).eq("id", id_selecionado).execute()
+                        st.success(f"Produto ID {id_selecionado} atualizado!")
                         st.rerun()
     else:
         st.info("Nenhum produto cadastrado.")
@@ -123,9 +127,10 @@ elif menu == "🔄 Entrada / Saída":
     st.title("🔄 Movimentação")
     df = buscar_dados("produtos")
     if not df.empty:
-        opcoes = {f"{p['nome']} {p.get('modelo','')} (Qtd: {p['quantidade']})": p for _, p in df.iterrows()}
-        escolha = st.selectbox("Selecione o produto", list(opcoes.keys()))
-        item_sel = opcoes[escolha]
+        # Seleção por ID também na movimentação para evitar erros
+        opcoes_mov = {f"ID: {p['id']} | {p['nome']}": p for _, p in df.iterrows()}
+        escolha = st.selectbox("Selecione o produto (ID | Nome)", list(opcoes_mov.keys()))
+        item_sel = opcoes_mov[escolha]
         
         qtd_mov = st.number_input("Quantidade", min_value=1)
         tipo_op = st.radio("Operação", ["Entrada (Compra)", "Saída (Baixa)"])
@@ -153,12 +158,12 @@ elif menu == "🆕 Cadastrar Produto":
         mod = st.text_input("Modelo")
         cat = st.text_input("Categoria")
         q = st.number_input("Qtd Inicial", min_value=0)
-        a = st.number_input("Alerta Mínimo", min_value=1)
+        a = st.number_input("Alerta Estoque Mínimo", min_value=1)
         if st.form_submit_button("Cadastrar"):
             if n:
                 check = supabase.table("produtos").select("id").eq("nome", n).execute()
                 if check.data:
-                    st.error("Produto com este nome já existe!")
+                    st.error("Já existe um produto com este nome!")
                 else:
                     supabase.table("produtos").insert({
                         "nome":n, "marca":m, "modelo":mod, "categoria":cat, 
@@ -167,49 +172,46 @@ elif menu == "🆕 Cadastrar Produto":
                     st.success("Cadastrado!")
             else: st.error("O campo Nome é obrigatório")
 
-# --- TELA: CORREÇÃO DE PRODUTOS (ANTIGA ADMINISTRAÇÃO) ---
+# --- TELA: CORREÇÃO DE PRODUTOS ---
 elif menu == "🔧 Correção de Produtos":
     st.title("🔧 Correção de Produtos")
-    st.info("Nesta tela você pode corrigir qualquer detalhe do produto, incluindo ID, Nome e Modelo.")
-    
     df = buscar_dados("produtos")
     if not df.empty:
         aba_corr, aba_excl = st.tabs(["📝 Corrigir Dados", "🚨 Excluir Produto"])
         
         with aba_corr:
-            selecionado = st.selectbox("Escolha o produto para corrigir", df['nome'].tolist(), key="corr_sel")
-            p = df[df['nome'] == selecionado].iloc[0]
+            # Seleção focada no ID
+            dic_id = {f"ID: {row['id']} - {row['nome']}": row['id'] for _, row in df.iterrows()}
+            sel_id_label = st.selectbox("Selecione o ID do produto para corrigir", list(dic_id.keys()))
+            id_atual = dic_id[sel_id_label]
+            p = df[df['id'] == id_atual].iloc[0]
             
-            with st.form("form_correcao"):
+            with st.form("form_correcao_completa"):
+                st.write(f"Editando informações do **ID {id_atual}**")
                 col_a, col_b = st.columns(2)
-                # O ID é chave primária, geralmente não se muda, mas se precisar mudar o ID visual ou referência:
-                id_prod = col_a.text_input("ID do Produto (Referência)", value=str(p['id']), disabled=True)
-                nome_prod = col_a.text_input("Nome do Produto", value=p['nome'])
-                marca_prod = col_a.text_input("Marca", value=p['marca'])
                 
-                modelo_prod = col_b.text_input("Modelo", value=p.get('modelo', ''))
-                cat_prod = col_b.text_input("Categoria", value=p['categoria'])
-                alerta_prod = col_b.number_input("Alerta de Estoque", value=int(p['alerta']))
+                nome_c = col_a.text_input("Nome", value=p['nome'])
+                marca_c = col_a.text_input("Marca", value=p['marca'])
+                modelo_c = col_b.text_input("Modelo", value=p.get('modelo', ''))
+                cat_c = col_b.text_input("Categoria", value=p['categoria'])
+                alerta_c = st.number_input("Alerta de Estoque", value=int(p['alerta']))
                 
-                if st.form_submit_button("Salvar Todas as Correções"):
-                    try:
-                        supabase.table("produtos").update({
-                            "nome": nome_prod,
-                            "marca": marca_prod,
-                            "modelo": modelo_prod,
-                            "categoria": cat_prod,
-                            "alerta": int(alerta_prod)
-                        }).eq("id", p['id']).execute()
-                        st.success("Produto atualizado com sucesso!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao atualizar: {e}")
+                if st.form_submit_button("Salvar Alterações"):
+                    supabase.table("produtos").update({
+                        "nome": nome_c,
+                        "marca": marca_c,
+                        "modelo": modelo_c,
+                        "categoria": cat_c,
+                        "alerta": int(alerta_c)
+                    }).eq("id", id_atual).execute()
+                    st.success("Produto corrigido!")
+                    st.rerun()
 
         with aba_excl:
-            st.warning("Atenção: A exclusão é permanente!")
-            if st.button(f"CONFIRMAR EXCLUSÃO DE: {selecionado}", type="primary"):
-                supabase.table("produtos").delete().eq("id", p['id']).execute()
-                st.success("Produto removido do sistema.")
+            st.error("CUIDADO: A exclusão apaga o produto permanentemente.")
+            if st.button(f"CONFIRMAR EXCLUSÃO DO ID: {id_atual}", type="primary"):
+                supabase.table("produtos").delete().eq("id", id_atual).execute()
+                st.success("Produto excluído.")
                 st.rerun()
 
 # --- TELA: HISTÓRICO ---
@@ -231,49 +233,45 @@ elif menu == "👥 Gerenciar Usuários":
 
     with aba_a:
         with st.form("form_novo_usuario"):
-            nu = st.text_input("Login (Usuário)").lower().strip()
+            nu = st.text_input("Login").lower().strip()
             ns = st.text_input("Senha", type="password")
             nv = st.selectbox("Nível", ["comum", "administrador"])
-            st.write("--- Permissões ---")
-            col1, col2 = st.columns(2)
-            c_con = col1.checkbox("Consultar", value=True)
-            c_mov = col1.checkbox("Movimentar")
-            c_cad = col1.checkbox("Cadastrar")
-            c_adm = col2.checkbox("Correção (Admin)")
-            c_his = col2.checkbox("Histórico")
-            c_usu = col2.checkbox("Gerir Usuários")
+            c1, c2 = st.columns(2)
+            p1 = c1.checkbox("Consultar", value=True)
+            p2 = c1.checkbox("Movimentar")
+            p3 = c1.checkbox("Cadastrar")
+            p4 = c2.checkbox("Correção (Admin)")
+            p5 = c2.checkbox("Histórico")
+            p6 = c2.checkbox("Gerir Usuários")
             if st.form_submit_button("Criar"):
                 if nu and ns:
                     supabase.table("usuarios").insert({
                         "usuario": nu, "senha": ns, "nivel": nv,
-                        "can_consultar": c_con, "can_movimentar": c_mov,
-                        "can_cadastrar": c_cad, "can_admin": c_adm,
-                        "can_historico": c_his, "can_usuarios": c_usu
+                        "can_consultar": p1, "can_movimentar": p2, "can_cadastrar": p3,
+                        "can_admin": p4, "can_historico": p5, "can_usuarios": p6
                     }).execute()
                     st.success("Usuário criado!")
                     st.rerun()
 
     with aba_e:
         if not df_u.empty:
-            user_edit = st.selectbox("Usuário para alterar", df_u['usuario'].tolist())
+            user_edit = st.selectbox("Usuário", df_u['usuario'].tolist())
             u_sel = df_u[df_u['usuario'] == user_edit].iloc[0]
-            with st.form("form_edit_usuario"):
+            with st.form("edit_u"):
                 nova_s = st.text_input("Nova Senha (vazio mantém)", type="password")
                 niveis = ["comum", "administrador"]
                 idx = 1 if u_sel['nivel'] == 'administrador' else 0
                 novo_n = st.selectbox("Nível", niveis, index=idx)
-                
                 col1, col2 = st.columns(2)
-                p1 = col1.checkbox("Consultar", value=bool(u_sel.get('can_consultar', True)))
-                p2 = col1.checkbox("Movimentar", value=bool(u_sel.get('can_movimentar', False)))
-                p3 = col1.checkbox("Cadastrar", value=bool(u_sel.get('can_cadastrar', False)))
-                p4 = col2.checkbox("Correção (Admin)", value=bool(u_sel.get('can_admin', False)))
-                p5 = col2.checkbox("Histórico", value=bool(u_sel.get('can_historico', False)))
-                p6 = col2.checkbox("Gerir Usuários", value=bool(u_sel.get('can_usuarios', False)))
-                
-                if st.form_submit_button("Salvar Alterações"):
-                    upd = {"nivel": novo_n, "can_consultar": p1, "can_movimentar": p2, "can_cadastrar": p3, "can_admin": p4, "can_historico": p5, "can_usuarios": p6}
+                e1 = col1.checkbox("Consultar", value=bool(u_sel.get('can_consultar', True)))
+                e2 = col1.checkbox("Movimentar", value=bool(u_sel.get('can_movimentar', False)))
+                e3 = col1.checkbox("Cadastrar", value=bool(u_sel.get('can_cadastrar', False)))
+                e4 = col2.checkbox("Correção (Admin)", value=bool(u_sel.get('can_admin', False)))
+                e5 = col2.checkbox("Histórico", value=bool(u_sel.get('can_historico', False)))
+                e6 = col2.checkbox("Gerir Usuários", value=bool(u_sel.get('can_usuarios', False)))
+                if st.form_submit_button("Atualizar"):
+                    upd = {"nivel": novo_n, "can_consultar": e1, "can_movimentar": e2, "can_cadastrar": e3, "can_admin": e4, "can_historico": e5, "can_usuarios": e6}
                     if nova_s: upd["senha"] = nova_s
                     supabase.table("usuarios").update(upd).eq("usuario", user_edit).execute()
-                    st.success("Atualizado!")
+                    st.success("Usuário atualizado!")
                     st.rerun()
