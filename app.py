@@ -43,7 +43,7 @@ if not st.session_state.logado:
                     st.session_state.logado = True
                     st.session_state.user = u
                     st.session_state.perms = {
-                        "nivel": user_data.get('nivel', 'user'),
+                        "nivel": user_data.get('nivel', 'comum'),
                         "consultar": user_data.get('can_consultar', True),
                         "movimentar": user_data.get('can_movimentar', False),
                         "cadastrar": user_data.get('can_cadastrar', False),
@@ -60,7 +60,7 @@ if not st.session_state.logado:
 
 # --- 5. MENU LATERAL DINÂMICO ---
 st.sidebar.title(f"👋 Olá, {st.session_state.user.capitalize()}")
-st.sidebar.write(f"Nível: **{st.session_state.perms.get('nivel', 'user').upper()}**")
+st.sidebar.write(f"Nível: **{st.session_state.perms.get('nivel', 'comum').upper()}**")
 
 opcoes_menu = []
 if st.session_state.perms.get('consultar'): opcoes_menu.append("📊 Consultar Estoque")
@@ -157,18 +157,18 @@ elif menu == "👥 Gerenciar Usuários":
     aba_l, aba_a, aba_e = st.tabs(["📋 Lista de Usuários", "➕ Novo Usuário", "✏️ Editar Permissões"])
     df_u = buscar_dados("usuarios")
 
-    # 1. ABA LISTA (FILTRADA)
+    # 1. ABA LISTA (Exibe apenas usuario e nivel)
     with aba_l:
         if not df_u.empty:
-            # Exibe apenas usuario e nivel
             st.dataframe(df_u[['usuario', 'nivel']], use_container_width=True, hide_index=True)
 
-    # 2. ABA NOVO (COM PERMISSÕES NO CADASTRO)
+    # 2. ABA NOVO (Com 2 níveis: comum e administrador)
     with aba_a:
         with st.form("form_novo_usuario"):
             nu = st.text_input("Login (Usuário)").lower().strip()
             ns = st.text_input("Senha", type="password")
-            nv = st.selectbox("Nível", ["user", "gerente", "admin"])
+            # Nível alterado para as duas opções solicitadas
+            nv = st.selectbox("Nível", ["comum", "administrador"])
             
             st.write("--- Atribuir Permissões de Tela ---")
             col1, col2 = st.columns(2)
@@ -188,10 +188,10 @@ elif menu == "👥 Gerenciar Usuários":
                             "can_cadastrar": c_cad, "can_admin": c_adm,
                             "can_historico": c_his, "can_usuarios": c_usu
                         }).execute()
-                        st.success(f"Usuário {nu} criado com sucesso!")
+                        st.success(f"Usuário {nu} criado!")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Erro ao criar: {e}")
+                        st.error(f"Erro: {e}")
                 else:
                     st.warning("Preencha Login e Senha.")
 
@@ -204,9 +204,15 @@ elif menu == "👥 Gerenciar Usuários":
             with st.form("form_edit_usuario"):
                 nova_s = st.text_input("Nova Senha (deixe vazio para não alterar)", type="password")
                 
-                niveis = ["user", "gerente", "admin"]
-                nivel_atual = str(u_sel.get('nivel', 'user')).lower()
-                idx = niveis.index(nivel_atual) if nivel_atual in niveis else 0
+                niveis = ["comum", "administrador"]
+                # Lógica para converter nomes antigos para os novos na visualização
+                nivel_banco = str(u_sel.get('nivel', 'comum')).lower()
+                if nivel_banco in ['admin', 'administrador']:
+                    nivel_atual = 'administrador'
+                else:
+                    nivel_atual = 'comum'
+                
+                idx = niveis.index(nivel_atual)
                 novo_n = st.selectbox("Nível de Acesso", niveis, index=idx)
                 
                 st.write("--- Ajustar Permissões ---")
