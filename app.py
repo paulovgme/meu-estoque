@@ -182,26 +182,55 @@ elif menu == "🔧 Correção de Produtos":
         
         with aba_e:
             st.subheader("Excluir Produto por ID")
-            busca_id = st.text_input("Digite a ID que deseja excluir").strip()
             
-            if busca_id:
-                # Filtra apenas pelo ID exato
+            # Layout do campo de busca
+            col_id, col_btn = st.columns([1, 4])
+            busca_id = col_id.text_input("Digite a ID que deseja excluir").strip()
+            buscar_click = col_btn.button("🔍 Buscar Produto")
+
+            # Verifica se houve a busca
+            if buscar_click and busca_id:
                 df_item = df[df['id'].astype(str) == busca_id]
-                
                 if not df_item.empty:
-                    item_info = df_item.iloc[0]
-                    st.warning(f"Produto encontrado: **{item_info['nome']}** | Marca: **{item_info['marca']}**")
-                    
-                    if st.button(f"CONFIRMAR EXCLUSÃO DEFINITIVA (ID: {busca_id})", type="primary"):
-                        try:
-                            supabase.table("produtos").delete().eq("id", busca_id).execute()
-                            st.success("Produto excluído com sucesso!")
-                            time.sleep(2)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao excluir: {e}")
+                    st.session_state.item_para_excluir = df_item.iloc[0]
                 else:
+                    st.session_state.item_para_excluir = None
                     st.error("Nenhum produto encontrado com este ID.")
+
+            # Se o item foi encontrado, exibe as informações e o aviso gigante
+            if 'item_para_excluir' in st.session_state and st.session_state.item_para_excluir is not None:
+                item = st.session_state.item_para_excluir
+                
+                st.divider()
+                # AVISO GIGANTE EM VERMELHO (5x maior)
+                st.markdown("""
+                    <p style='color: #FF0000; font-size: 50px; font-weight: bold; text-align: center; line-height: 1.2; border: 5px solid #FF0000; padding: 20px;'>
+                        ESTA FUNÇÃO É IRREVERSÍVEL,<br>
+                        FAVOR VERIFICAR COM ATENÇÃO ANTES DE EXCLUIR!
+                    </p>
+                """, unsafe_allow_html=True)
+                
+                # Exibição completa dos dados do produto para conferência
+                st.subheader("📋 Conferência de Dados do Produto")
+                c1, c2, c3 = st.columns(3)
+                c1.write(f"**ID:** {item['id']}")
+                c1.write(f"**Nome:** {item['nome']}")
+                c2.write(f"**Marca:** {item['marca']}")
+                c2.write(f"**Modelo:** {item.get('modelo', 'N/A')}")
+                c3.write(f"**Categoria:** {item['categoria']}")
+                c3.write(f"**Quantidade:** {item['quantidade']}")
+
+                # Botão final de exclusão
+                if st.button(f"⚠️ SIM, CONFIRMO A EXCLUSÃO DEFINITIVA DO ID {item['id']}", type="primary", use_container_width=True):
+                    try:
+                        supabase.table("produtos").delete().eq("id", item['id']).execute()
+                        st.success(f"Produto ID {item['id']} excluído com sucesso!")
+                        # Limpa o estado da sessão para não exibir mais o item
+                        st.session_state.item_para_excluir = None
+                        time.sleep(2)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao excluir: {e}")
 
 # --- HISTÓRICO ---
 elif menu == "📜 Histórico Geral":
