@@ -81,11 +81,13 @@ if st.sidebar.button("Sair / Logoff"):
 
 # --- 6. TELAS DO SISTEMA ---
 
+# --- CONSULTA DE ESTOQUE ---
 if menu == "📊 Consultar Estoque":
     st.title("📊 Consultar Estoque")
     df = buscar_dados("produtos")
     if not df.empty:
         termo = st.text_input("🔍 Pesquisar por ID, Nome, Marca ou Modelo").lower()
+        # Filtros corrigidos com .str.contains
         df_filtrado = df[
             df['nome'].str.lower().str.contains(termo, na=False) | 
             df['marca'].str.lower().str.contains(termo, na=False) |
@@ -114,6 +116,7 @@ if menu == "📊 Consultar Estoque":
                             time.sleep(1.5)
                             st.rerun()
 
+# --- MOVIMENTAÇÃO ---
 elif menu == "🔄 Entrada / Saída":
     st.title("🔄 Movimentação")
     df = buscar_dados("produtos")
@@ -133,6 +136,7 @@ elif menu == "🔄 Entrada / Saída":
                 time.sleep(1)
                 st.rerun()
 
+# --- CADASTRO DE PRODUTO ---
 elif menu == "🆕 Cadastrar Produto":
     st.title("🆕 Novo Produto")
     with st.form("novo_p", clear_on_submit=True):
@@ -153,6 +157,7 @@ elif menu == "🆕 Cadastrar Produto":
                     st.rerun()
             else: st.error("Nome obrigatório")
 
+# --- CORREÇÃO DE PRODUTOS ---
 elif menu == "🔧 Correção de Produtos":
     st.title("🔧 Correção de Produtos")
     df = buscar_dados("produtos")
@@ -177,30 +182,34 @@ elif menu == "🔧 Correção de Produtos":
         
         with aba_e:
             st.subheader("Pesquisar Produto para Excluir")
-            busca_excluir = st.text_input("🔍 Digite Nome, Marca ou ID para filtrar a lista de exclusão").lower()
+            busca_excluir = st.text_input("🔍 Digite Nome, Marca ou ID para filtrar a lista").lower()
+            
+            # FILTRO CORRIGIDO: Adicionado .str antes de .contains
             df_filtro_excluir = df[
                 df['nome'].str.lower().str.contains(busca_excluir, na=False) |
-                df['id'].astype(str).contains(busca_excluir, na=False)
+                df['id'].astype(str).str.contains(busca_excluir, na=False)
             ]
             
             if not df_filtro_excluir.empty:
                 dic_excl = {f"ID: {r['id']} - {r['nome']}": r['id'] for _, r in df_filtro_excluir.iterrows()}
-                id_para_deletar = dic_excl[st.selectbox("Selecione o produto que deseja APAGAR", list(dic_excl.keys()))]
+                id_para_deletar = dic_excl[st.selectbox("Selecione o item para APAGAR", list(dic_excl.keys()))]
                 
-                if st.button(f"CONFIRMAR EXCLUSÃO DO ID: {id_para_deletar}", type="primary"):
+                if st.button(f"CONFIRMAR EXCLUSÃO DEFINITIVA (ID: {id_para_deletar})", type="primary"):
                     supabase.table("produtos").delete().eq("id", id_para_deletar).execute()
                     st.success("Produto excluído com sucesso!")
                     time.sleep(2)
                     st.rerun()
             else:
-                st.warning("Nenhum produto encontrado com este termo.")
+                st.warning("Nenhum produto encontrado.")
 
+# --- HISTÓRICO ---
 elif menu == "📜 Histórico Geral":
     st.title("📜 Histórico")
     df_h = buscar_dados("historico")
     if not df_h.empty:
         st.dataframe(df_h.sort_values("data", ascending=False), use_container_width=True, hide_index=True)
 
+# --- USUÁRIOS ---
 elif menu == "👥 Gerenciar Usuários":
     st.title("👥 Gestão de Usuários")
     aba_l, aba_a, aba_e, aba_d = st.tabs(["📋 Lista de Usuários", "➕ Novo Usuário", "✏️ Editar Usuário", "🗑️ Excluir Usuário"])
