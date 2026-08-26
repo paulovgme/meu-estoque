@@ -3,6 +3,7 @@ import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
 import time
+import io
 
 # --- 1. CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Sistema TI - Estoque Pro", page_icon="📦", layout="wide")
@@ -24,6 +25,17 @@ def buscar_dados(tabela):
     except Exception as e:
         st.error(f"Erro ao acessar {tabela}: {e}")
         return pd.DataFrame()
+
+def formatar_data(data_iso):
+    """Converte datas do banco para o padrão brasileiro DD/MM/AAAA HH:MM"""
+    if pd.isna(data_iso) or not data_iso:
+        return "N/A"
+    try:
+        # Trata formato ISO (ex: 2024-05-10T14:30:00)
+        dt = pd.to_datetime(data_iso)
+        return dt.strftime("%d/%m/%Y %H:%M")
+    except:
+        return str(data_iso)
 
 # --- 4. CONTROLE DE ACESSO (LOGIN) ---
 if 'logado' not in st.session_state:
@@ -70,7 +82,7 @@ if st.session_state.perms.get('consultar'): opcoes_menu.append("📊 Consultar E
 if st.session_state.perms.get('movimentar'): opcoes_menu.append("🔄 Entrada / Saída")
 if st.session_state.perms.get('cadastrar'):  opcoes_menu.append("🆕 Cadastrar Produto")
 if st.session_state.perms.get('admin'):      opcoes_menu.append("🔧 Correção de Produtos")
-if st.session_state.perms.get('historico'):  opcoes_menu.append("📜 Histórico Geral")
+if st.session_state.perms.get('historico'):  opcoes_menu.append("📜 Histórico e Relatórios")
 if st.session_state.perms.get('usuarios'):   opcoes_menu.append("👥 Gerenciar Usuários")
 
 menu = st.sidebar.radio("Navegação", opcoes_menu)
@@ -115,25 +127,58 @@ if menu == "📊 Consultar Estoque":
                             time.sleep(1.5)
                             st.rerun()
 
-# --- MOVIMENTAÇÃO ---
+# --- MOVIMENTAÇÃO (ENTRADA / SAÍDA COM CAMPO DE CHAMADO) ---
 elif menu == "🔄 Entrada / Saída":
-    st.title("🔄 Movimentação")
+    st.title("🔄 Movimentação de Estoque")
     df = buscar_dados("produtos")
     if not df.empty:
-        opcoes_mov = {f"ID: {p['id']} | {p['nome']}": p for _, p in df.iterrows()}
+        opcoes_mov = {f"ID: {p['id']} | {p['nome']} (Saldo atual: {p['quantidade']})": p for _, p in df.iterrows()}
         escolha = st.selectbox("Selecione o produto", list(opcoes_mov.keys()))
         item_sel = opcoes_mov[escolha]
-        qtd_mov = st.number_input("Quantidade", min_value=1)
-        tipo_op = st.radio("Operação", ["Entrada (Compra)", "Saída (Baixa)"])
-        if st.button("Confirmar"):
-            nova_qtd = item_sel['quantidade'] + qtd_mov if "Entrada" in tipo_op else item_sel['quantidade'] - qtd_mov
-            if nova_qtd < 0: st.error("Saldo insuficiente!")
+        
+        col1, col2 = st.columns(2)
+        qtd_mov = col1.number_input("Quantidade", min_value=1, step=1)
+        tipo_op = col2.radio("Tipo de Operação", ["Saída (Baixa)", "Entrada (Compra)"])
+        
+        # Campo de chamado é exibido obrigatoriamente quando for Saída
+        num_chamado = ""
+        if "Saída" in tipo_op:
+            st.info("ℹ️ Para saídas de produtos, informe o número do chamado correspondente.")
+            num_chamado = st.text_input("🎫 Número / Identificador do Chamado *", placeholder="Ex: #10452, INC-9932, OS 45").strip()
+        else:
+            num_chamado = st.text_input("📝 Observação / Nota de Entrada (Opcional)", placeholder="Ex: Compra NF-1234, Reposição").strip()
+
+        st.write("")
+        if st.button("Confirmar Movimentação", type="primary", use_container_width=True):
+            # Validação para não permitir saída sem chamado
+            if "Saída" in tipo_op and not num_chamado:
+                st.error("⚠️ Atenção: Por favor, informe o número do chamado para realizar a saída do produto.")
             else:
-                supabase.table("produtos").update({"quantidade": int(nova_qtd)}).eq("id", item_sel['id']).execute()
-                supabase.table("historico").insert({"operador": st.session_state.nome_real, "acao": tipo_op, "produto": item_sel['nome'], "quantidade": int(qtd_mov), "data": datetime.now().isoformat()}).execute()
-                st.success("Movimentação registrada!")
-                time.sleep(1)
-                st.rerun()
+                nova_qtd = item_sel['quantidade'] + qtd_mov if "Entrada" in tipo_op else item_sel['quantidade'] - qtd_mov
+                
+                if nova_qtd < 0:
+                    st.error(f"Saldo insuficiente! Saldo atual é de apenas {item_sel['quantidade']} unidades.")
+                else:
+                    try:
+                        # 1. Atualiza quantidade no produto
+                        supabase.table("produtos").update({"quantidade": int(nova_qtd)}).eq("id", item_sel['id']).execute()
+                        
+                        # 2. Registra histórico detalhado com o chamado
+                        dados_historico = {
+                            "operador": st.session_state.nome_real,
+                            "acao": tipo_op,
+                            "produto": item_sel['nome'],
+                            "quantidade": int(qtd_mov),
+                            "chamado": num_chamado if num_chamado else ("Entrada / Compra" if "Entrada" in tipo_op else "Não informado"),
+                            "data": datetime.now().isoformat()
+                        }
+                        supabase.table("historico").insert(dados_historico).execute()
+                        
+                        st.success(f"✅ Movimentação de {tipo_op} realizada com sucesso!")
+                        time.sleep(1.5)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao registrar movimentação: {e}")
 
 # --- CADASTRO DE PRODUTO ---
 elif menu == "🆕 Cadastrar Produto":
@@ -182,13 +227,10 @@ elif menu == "🔧 Correção de Produtos":
         
         with aba_e:
             st.subheader("Excluir Produto por ID")
-            
-            # Layout do campo de busca
             col_id, col_btn = st.columns([1, 4])
             busca_id = col_id.text_input("Digite a ID que deseja excluir").strip()
             buscar_click = col_btn.button("🔍 Buscar Produto")
 
-            # Verifica se houve a busca
             if buscar_click and busca_id:
                 df_item = df[df['id'].astype(str) == busca_id]
                 if not df_item.empty:
@@ -197,20 +239,16 @@ elif menu == "🔧 Correção de Produtos":
                     st.session_state.item_para_excluir = None
                     st.error("Nenhum produto encontrado com este ID.")
 
-            # Se o item foi encontrado, exibe as informações e o aviso gigante
             if 'item_para_excluir' in st.session_state and st.session_state.item_para_excluir is not None:
                 item = st.session_state.item_para_excluir
-                
                 st.divider()
-                # AVISO GIGANTE EM VERMELHO (5x maior)
                 st.markdown("""
-                    <p style='color: #FF0000; font-size: 50px; font-weight: bold; text-align: center; line-height: 1.2; border: 5px solid #FF0000; padding: 20px;'>
+                    <p style='color: #FF0000; font-size: 40px; font-weight: bold; text-align: center; line-height: 1.2; border: 4px solid #FF0000; padding: 15px; border-radius: 8px;'>
                         ESTA FUNÇÃO É IRREVERSÍVEL,<br>
                         FAVOR VERIFICAR COM ATENÇÃO ANTES DE EXCLUIR!
                     </p>
                 """, unsafe_allow_html=True)
                 
-                # Exibição completa dos dados do produto para conferência
                 st.subheader("📋 Conferência de Dados do Produto")
                 c1, c2, c3 = st.columns(3)
                 c1.write(f"**ID:** {item['id']}")
@@ -220,24 +258,110 @@ elif menu == "🔧 Correção de Produtos":
                 c3.write(f"**Categoria:** {item['categoria']}")
                 c3.write(f"**Quantidade:** {item['quantidade']}")
 
-                # Botão final de exclusão
                 if st.button(f"⚠️ SIM, CONFIRMO A EXCLUSÃO DEFINITIVA DO ID {item['id']}", type="primary", use_container_width=True):
                     try:
                         supabase.table("produtos").delete().eq("id", item['id']).execute()
                         st.success(f"Produto ID {item['id']} excluído com sucesso!")
-                        # Limpa o estado da sessão para não exibir mais o item
                         st.session_state.item_para_excluir = None
                         time.sleep(2)
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao excluir: {e}")
 
-# --- HISTÓRICO ---
-elif menu == "📜 Histórico Geral":
-    st.title("📜 Histórico")
+# --- HISTÓRICO GERAL E RELATÓRIO DE SAÍDAS EM EXCEL ---
+elif menu == "📜 Histórico e Relatórios":
+    st.title("📜 Histórico e Relatórios")
+    
+    aba_hist, aba_relatorio = st.tabs(["📋 Histórico Completo", "📊 Relatório de Saídas (Excel)"])
+    
     df_h = buscar_dados("historico")
+    
     if not df_h.empty:
-        st.dataframe(df_h.sort_values("data", ascending=False), use_container_width=True, hide_index=True)
+        # Garante que a coluna 'chamado' exista no DataFrame mesmo se houver registros antigos
+        if 'chamado' not in df_h.columns:
+            df_h['chamado'] = "N/A"
+        df_h['chamado'] = df_h['chamado'].fillna("N/A")
+        
+        # Cria uma coluna de Data/Hora formatada bonita para o usuário
+        df_h['data_formatada'] = df_h['data'].apply(formatar_data)
+        
+        # --- ABA 1: HISTÓRICO GERAL ---
+        with aba_hist:
+            st.subheader("Visão Geral das Movimentações")
+            # Ordena por data decrescente
+            df_exibicao = df_h.sort_values("data", ascending=False).copy()
+            
+            # Renomeia colunas para ficar amigável na tela
+            df_tabela = df_exibicao[['data_formatada', 'produto', 'acao', 'quantidade', 'chamado', 'operador']].copy()
+            df_tabela.columns = ['Data e Hora', 'Produto', 'Operação', 'Quantidade', 'Chamado / Ref', 'Operador']
+            
+            st.dataframe(df_tabela, use_container_width=True, hide_index=True)
+            st.caption(f"Total de registros: {len(df_tabela)}")
+
+        # --- ABA 2: RELATÓRIO DE SAÍDAS (EXCEL) ---
+        with aba_relatorio:
+            st.subheader("📊 Gerador de Relatório de Saídas por Produto e Chamado")
+            st.write("Filtre as saídas para saber exatamente qual produto foi utilizado em qual chamado e gere o arquivo Excel:")
+            
+            # Filtra apenas saídas
+            df_saidas = df_h[df_h['acao'].str.contains("Saída", na=False)].copy()
+            
+            if df_saidas.empty:
+                st.warning("Nenhuma saída registrada até o momento.")
+            else:
+                # Filtros
+                col_f1, col_f2 = st.columns(2)
+                
+                lista_produtos = ["Todos os Produtos"] + sorted(df_saidas['produto'].dropna().unique().tolist())
+                produto_escolhido = col_f1.selectbox("Filtrar por Produto", lista_produtos)
+                
+                busca_chamado = col_f2.text_input("Filtrar por Número de Chamado (opcional)", placeholder="Digite parte do número do chamado").strip()
+                
+                # Aplicação dos filtros
+                df_rel = df_saidas.copy()
+                if produto_escolhido != "Todos os Produtos":
+                    df_rel = df_rel[df_rel['produto'] == produto_escolhido]
+                
+                if busca_chamado:
+                    df_rel = df_rel[df_rel['chamado'].astype(str).str.lower().str.contains(busca_chamado.lower(), na=False)]
+                
+                # Ordena por data mais recente
+                df_rel = df_rel.sort_values("data", ascending=False)
+                
+                # Monta tabela final do relatório
+                df_rel_final = pd.DataFrame({
+                    "Produto": df_rel['produto'],
+                    "Data e Hora da Saída": df_rel['data_formatada'],
+                    "Quantidade": df_rel['quantidade'],
+                    "Quem deu a Saída (Operador)": df_rel['operador'],
+                    "Para qual Chamado foi a Saída": df_rel['chamado'],
+                    "Operação": df_rel['acao']
+                })
+                
+                st.dataframe(df_rel_final, use_container_width=True, hide_index=True)
+                st.info(f"Total de saídas encontradas: **{len(df_rel_final)}**")
+                
+                # --- BOTÃO PARA BAIXAR EM EXCEL ---
+                if not df_rel_final.empty:
+                    # Gera o arquivo Excel em memória
+                    buffer_excel = io.BytesIO()
+                    with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
+                        df_rel_final.to_excel(writer, index=False, sheet_name="Relatorio_Saidas")
+                    
+                    dados_excel = buffer_excel.getvalue()
+                    
+                    nome_arquivo = f"relatorio_saidas_{datetime.now().strftime('%d_%m_%Y_%H%M')}.xlsx"
+                    
+                    st.download_button(
+                        label="📥 Baixar Relatório em Excel (.xlsx)",
+                        data=dados_excel,
+                        file_name=nome_arquivo,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="primary",
+                        use_container_width=True
+                    )
+    else:
+        st.info("Nenhuma movimentação registrada no histórico ainda.")
 
 # --- USUÁRIOS ---
 elif menu == "👥 Gerenciar Usuários":
