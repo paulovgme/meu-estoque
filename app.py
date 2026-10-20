@@ -190,7 +190,7 @@ def criar_pdf_os(os_dados):
     corpo = ParagraphStyle("CorpoOS", parent=estilos["Normal"], fontSize=10, leading=15, spaceAfter=7)
     def campo(nome, valor):
         return Paragraph(f"<b>{xml_escape(nome)}:</b> {xml_escape(str(valor or '—'))}", corpo)
-    historia = [Paragraph("ORDEM DE SERVIÇO — TECNOLOGIA DA INFORMAÇÃO", titulo)]
+    historia = [Paragraph("ORDEM DE SERVIÇO — ÉVORA TECNOLOGIA", titulo)]
     historia += [campo("Nº da O.S.", os_dados.get("numero")),
                  campo("Abertura", formatar_data(os_dados.get("created_at"))),
                  campo("Status", os_dados.get("status")),
@@ -216,7 +216,7 @@ def painel_os(os_dados, chave):
     """Pré-visualização legível antes de baixar/imprimir o PDF."""
     st.markdown("#### Pré-visualização da O.S.")
     with st.container(border=True):
-        st.markdown("### ORDEM DE SERVIÇO — T.I.")
+        st.markdown("### ORDEM DE SERVIÇO — ÉVORA TECNOLOGIA")
         st.markdown(f"**O.S. nº {os_dados.get('numero', '—')}** | **Status:** {os_dados.get('status', 'Aberta')} | **Prioridade:** {os_dados.get('prioridade', 'Normal')}")
         for nome, campo in [("Solicitante", "solicitante"), ("Setor / Local", "local_setor"),
                             ("Equipamento / Patrimônio", "equipamento"), ("Técnico", "tecnico"),
