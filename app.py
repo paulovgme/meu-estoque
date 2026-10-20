@@ -106,6 +106,49 @@ def carregar_usuario(login):
 def permissao(chave):
     return bool(st.session_state.perms.get(chave, False))
 
+def eh_administrador():
+    """Exclusão exige perfil administrativo E permissão administrativa."""
+    nivel = str(st.session_state.perms.get("nivel") or "").strip().lower()
+    return nivel in ("admin", "administrador") and permissao("admin")
+
+
+def painel_exclusao_registro(tipo, registro):
+    """Exclusão definitiva com confirmação explícita, apenas para administrador."""
+    if not eh_administrador():
+        return
+    tabela = "chamados" if tipo == "chamado" else "ordens_servico"
+    rotulo = "chamado" if tipo == "chamado" else "ordem de serviço"
+    numero = registro["numero"]
+    with st.expander(f"🗑️ Excluir {rotulo} nº {numero} — somente administrador"):
+        st.warning(
+            "Esta exclusão é permanente e também remove os eventos e materiais "
+            "vinculados ao registro. Movimentações já lançadas no estoque e no "
+            "histórico não serão revertidas."
+        )
+        with st.form(f"excluir_{tipo}_{registro['id']}"):
+            confirmacao = st.text_input(
+                f"Digite EXCLUIR {numero} para confirmar",
+                key=f"confirmar_exclusao_{tipo}_{registro['id']}",
+            )
+            excluir = st.form_submit_button(f"Excluir {rotulo} definitivamente")
+        if excluir:
+            if not eh_administrador():
+                st.error("Apenas o administrador pode excluir registros.")
+            elif confirmacao.strip() != f"EXCLUIR {numero}":
+                st.error("Confirmação incorreta. Nenhum registro foi excluído.")
+            else:
+                try:
+                    # Verifica o registro exato antes da exclusão.
+                    existente = supabase.table(tabela).select("id").eq("id", registro["id"]).limit(1).execute().data
+                    if not existente:
+                        st.error("Registro não encontrado. Atualize a página.")
+                        return
+                    supabase.table(tabela).delete().eq("id", registro["id"]).execute()
+                    st.success(f"{rotulo.capitalize()} nº {numero} excluído com sucesso.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Não foi possível excluir {rotulo}: {exc}")
+
 def exigir(chave):
     if not permissao(chave):
         st.error("Acesso não autorizado.")
@@ -367,6 +410,7 @@ elif menu == "📋 Chamados e O.S.":
                 if eventos:
                     st.subheader("Histórico do chamado")
                     st.dataframe(pd.DataFrame(eventos), use_container_width=True, hide_index=True)
+                painel_exclusao_registro("chamado", selecionado)
         except Exception as e: st.error(f"Erro ao consultar chamados: {e}")
     with tab_os:
         try:
@@ -417,6 +461,7 @@ elif menu == "📋 Chamados e O.S.":
                         st.subheader("Materiais utilizados")
                         st.dataframe(pd.DataFrame(materiais), use_container_width=True, hide_index=True)
                 painel_os(selecionada_os, "pdf_os_consulta")
+                painel_exclusao_registro("os", selecionada_os)
         except Exception as e: st.error(f"Erro ao consultar ordens de serviço: {e}")
 
 if menu == "📊 Consultar Estoque":
