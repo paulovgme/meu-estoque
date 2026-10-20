@@ -21,7 +21,7 @@ from reportlab.lib.units import cm
 from xml.sax.saxutils import escape as xml_escape
 
 # --- 1. CONFIGURAÇÕES DA PÁGINA ---
-st.set_page_config(page_title="Sistema TI - Estoque Pro", page_icon="📦", layout="wide")
+st.set_page_config(page_title="Évora Gestão", page_icon="📦", layout="wide")
 
 # --- 2. CONEXÃO COM SUPABASE ---
 @st.cache_resource
