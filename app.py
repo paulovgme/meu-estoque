@@ -143,7 +143,10 @@ def painel_exclusao_registro(tipo, registro):
                     if not existente:
                         st.error("Registro não encontrado. Atualize a página.")
                         return
-                    supabase.table(tabela).delete().eq("id", registro["id"]).execute()
+                    apagados = supabase.table(tabela).delete().eq("id", registro["id"]).execute()
+                    if not apagados.data:
+                        st.error("A exclusão não foi confirmada pelo banco de dados.")
+                        return
                     st.success(f"{rotulo.capitalize()} nº {numero} excluído com sucesso.")
                     st.rerun()
                 except Exception as exc:
@@ -201,7 +204,7 @@ st.session_state.perms["nivel"] = usuario_atual.get("nivel", "comum")
 
 st.sidebar.title(f"👋 Olá, {st.session_state.nome_real}")
 opcoes_menu = ["🏠 Início"]
-if permissao("ver_chamados") or permissao("gerenciar_os"): opcoes_menu.append("📋 Chamados e O.S.")
+if permissao("ver_chamados") or permissao("gerenciar_os") or eh_administrador(): opcoes_menu.append("📋 Chamados e O.S.")
 if permissao("consultar"): opcoes_menu.append("📊 Consultar Estoque")
 if permissao("abrir_chamado"): opcoes_menu.append("🎫 Abrir Chamados / O.S")
 if permissao("movimentar"): opcoes_menu.append("🔄 Entrada / Saída")
@@ -372,14 +375,14 @@ elif menu == "🎫 Abrir Chamados / O.S":
             if resultado: painel_os(resultado[0], "pdf_os_nova")
 
 elif menu == "📋 Chamados e O.S.":
-    if not (permissao("ver_chamados") or permissao("gerenciar_os")):
+    if not (permissao("ver_chamados") or permissao("gerenciar_os") or eh_administrador()):
         st.error("Acesso não autorizado."); st.stop()
     st.title("📋 Chamados e Ordens de Serviço")
     tab_ch, tab_os = st.tabs(["🎫 Chamados", "🛠️ Ordens de Serviço"])
     with tab_ch:
         try:
             rows = buscar_registros("chamados")
-            if not permissao("gerenciar_os"):
+            if not (permissao("gerenciar_os") or eh_administrador()):
                 rows = [r for r in rows if r.get("solicitante") == st.session_state.user]
             if not rows: st.info("Nenhum chamado encontrado.")
             else:
@@ -415,7 +418,7 @@ elif menu == "📋 Chamados e O.S.":
     with tab_os:
         try:
             registros_os = buscar_registros("ordens_servico")
-            if not permissao("gerenciar_os"):
+            if not (permissao("gerenciar_os") or eh_administrador()):
                 registros_os = [r for r in registros_os if r.get("solicitante") == st.session_state.user]
             if not registros_os: st.info("Nenhuma ordem de serviço encontrada.")
             else:
