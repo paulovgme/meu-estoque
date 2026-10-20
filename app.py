@@ -112,45 +112,63 @@ def eh_administrador():
     return nivel in ("admin", "administrador") and permissao("admin")
 
 
-def painel_exclusao_registro(tipo, registro):
-    """Exclusão definitiva com confirmação explícita, apenas para administrador."""
+@st.dialog("Confirmar exclusão")
+def confirmar_exclusao_registro(tipo, registro):
+    """Confirma exclusão do item escolhido na linha, sem apagar por engano."""
     if not eh_administrador():
+        st.error("Apenas o administrador pode excluir registros.")
         return
     tabela = "chamados" if tipo == "chamado" else "ordens_servico"
     rotulo = "chamado" if tipo == "chamado" else "ordem de serviço"
     numero = registro["numero"]
-    with st.expander(f"🗑️ Excluir {rotulo} nº {numero} — somente administrador"):
-        st.warning(
-            "Esta exclusão é permanente e também remove os eventos e materiais "
-            "vinculados ao registro. Movimentações já lançadas no estoque e no "
-            "histórico não serão revertidas."
-        )
-        with st.form(f"excluir_{tipo}_{registro['id']}"):
-            confirmacao = st.text_input(
-                f"Digite EXCLUIR {numero} para confirmar",
-                key=f"confirmar_exclusao_{tipo}_{registro['id']}",
-            )
-            excluir = st.form_submit_button(f"Excluir {rotulo} definitivamente")
-        if excluir:
-            if not eh_administrador():
-                st.error("Apenas o administrador pode excluir registros.")
-            elif confirmacao.strip() != f"EXCLUIR {numero}":
-                st.error("Confirmação incorreta. Nenhum registro foi excluído.")
-            else:
-                try:
-                    # Verifica o registro exato antes da exclusão.
-                    existente = supabase.table(tabela).select("id").eq("id", registro["id"]).limit(1).execute().data
-                    if not existente:
-                        st.error("Registro não encontrado. Atualize a página.")
-                        return
-                    apagados = supabase.table(tabela).delete().eq("id", registro["id"]).execute()
-                    if not apagados.data:
-                        st.error("A exclusão não foi confirmada pelo banco de dados.")
-                        return
-                    st.success(f"{rotulo.capitalize()} nº {numero} excluído com sucesso.")
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"Não foi possível excluir {rotulo}: {exc}")
+    st.warning(f"Excluir definitivamente {rotulo} nº {numero} — {registro.get('titulo') or ''}?")
+    st.caption("A exclusão não reverte movimentações de estoque já registradas. Registros relacionados podem impedir a exclusão se não houver exclusão em cascata no banco.")
+    c1, c2 = st.columns(2)
+    if c1.button("Cancelar", use_container_width=True, key=f"cancelar_{tipo}_{registro['id']}"):
+        st.rerun()
+    if c2.button("🗑️ Confirmar exclusão", type="primary", use_container_width=True,
+                 key=f"confirmar_{tipo}_{registro['id']}"):
+        if not eh_administrador():
+            st.error("Acesso não autorizado.")
+            return
+        try:
+            existente = supabase.table(tabela).select("id").eq("id", registro["id"]).limit(1).execute().data
+            if not existente:
+                st.error("Registro não encontrado. Atualize a página.")
+                return
+            resposta = supabase.table(tabela).delete().eq("id", registro["id"]).execute()
+            if not resposta.data:
+                st.error("O banco não confirmou a exclusão.")
+                return
+            st.session_state["mensagem_exclusao"] = f"{rotulo.capitalize()} nº {numero} excluído com sucesso."
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Não foi possível excluir {rotulo}: {exc}")
+
+
+def tabela_com_lixeira(registros, tipo):
+    """Linhas com lixeira à direita; visível somente para administradores."""
+    colunas = ["Nº", "Título", "Solicitante", "Prioridade", "Status", "Técnico", "Criado em"]
+    larguras = [0.65, 2.4, 1.25, 1.05, 1.3, 1.2, 1.6]
+    if eh_administrador():
+        colunas.append("Excluir")
+        larguras.append(0.7)
+    with st.container(border=True):
+        cabecalho = st.columns(larguras, gap="small")
+        for coluna, titulo in zip(cabecalho, colunas):
+            coluna.markdown(f"**{titulo}**")
+        st.divider()
+        for registro in registros:
+            celulas = st.columns(larguras, gap="small", vertical_alignment="center")
+            valores = [registro.get("numero"), registro.get("titulo"), registro.get("solicitante"),
+                       registro.get("prioridade"), registro.get("status"), registro.get("tecnico"),
+                       formatar_data(registro.get("created_at"))]
+            for coluna, valor in zip(celulas, valores):
+                coluna.write(str(valor) if valor not in (None, "") else "—")
+            if eh_administrador():
+                if celulas[-1].button("🗑️", key=f"lixeira_{tipo}_{registro['id']}",
+                                      help=f"Excluir {tipo} nº {registro['numero']}"):
+                    confirmar_exclusao_registro(tipo, registro)
 
 def exigir(chave):
     if not permissao(chave):
@@ -378,6 +396,8 @@ elif menu == "📋 Chamados e O.S.":
     if not (permissao("ver_chamados") or permissao("gerenciar_os") or eh_administrador()):
         st.error("Acesso não autorizado."); st.stop()
     st.title("📋 Chamados e Ordens de Serviço")
+    if st.session_state.get("mensagem_exclusao"):
+        st.success(st.session_state.pop("mensagem_exclusao"))
     tab_ch, tab_os = st.tabs(["🎫 Chamados", "🛠️ Ordens de Serviço"])
     with tab_ch:
         try:
@@ -388,7 +408,7 @@ elif menu == "📋 Chamados e O.S.":
             else:
                 df_ch = pd.DataFrame(rows)
                 colunas = [c for c in ("numero", "titulo", "solicitante", "prioridade", "status", "tecnico", "created_at") if c in df_ch]
-                st.dataframe(df_ch[colunas], use_container_width=True, hide_index=True)
+                tabela_com_lixeira(rows, "chamado")
                 idx = st.selectbox("Selecionar chamado", range(len(rows)), format_func=lambda i: f"#{rows[i]['numero']} - {rows[i]['titulo']}")
                 selecionado = rows[idx]
                 st.write("**Descrição:**", selecionado.get("descricao") or "—")
@@ -413,7 +433,6 @@ elif menu == "📋 Chamados e O.S.":
                 if eventos:
                     st.subheader("Histórico do chamado")
                     st.dataframe(pd.DataFrame(eventos), use_container_width=True, hide_index=True)
-                painel_exclusao_registro("chamado", selecionado)
         except Exception as e: st.error(f"Erro ao consultar chamados: {e}")
     with tab_os:
         try:
@@ -424,7 +443,7 @@ elif menu == "📋 Chamados e O.S.":
             else:
                 df_os = pd.DataFrame(registros_os)
                 colunas = [c for c in ("numero", "titulo", "solicitante", "prioridade", "status", "tecnico", "created_at") if c in df_os]
-                st.dataframe(df_os[colunas], use_container_width=True, hide_index=True)
+                tabela_com_lixeira(registros_os, "os")
                 idx_os = st.selectbox("Selecionar O.S.", range(len(registros_os)),
                                      format_func=lambda i: f"O.S. nº {registros_os[i]['numero']} - {registros_os[i]['titulo']}")
                 selecionada_os = registros_os[idx_os]
@@ -464,7 +483,6 @@ elif menu == "📋 Chamados e O.S.":
                         st.subheader("Materiais utilizados")
                         st.dataframe(pd.DataFrame(materiais), use_container_width=True, hide_index=True)
                 painel_os(selecionada_os, "pdf_os_consulta")
-                painel_exclusao_registro("os", selecionada_os)
         except Exception as e: st.error(f"Erro ao consultar ordens de serviço: {e}")
 
 if menu == "📊 Consultar Estoque":
