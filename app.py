@@ -167,7 +167,7 @@ if "logado" not in st.session_state:
     st.session_state.perms = {}
 
 if not st.session_state.logado:
-    st.title("🔐 Acesso ao Sistema TI")
+    st.title("🔐 Acesso ao Évora Gestão")
     with st.form("login_form"):
         u = st.text_input("Usuário").strip().lower()
         p = st.text_input("Senha", type="password")
